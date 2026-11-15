@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from .backend import Backend, TrackedBackend, UsageCounters, embed_texts, json_schema_format
+from .concurrency import parallel_map
 from .config import Config
 from .naming import sample_members
 from .prompts import problem_definition, ticket_list
@@ -107,25 +108,30 @@ def judge(run_result: RunResult, config: Config, backend: Backend) -> JudgeResul
     if cfg.max_problems is not None:
         order = order[: cfg.max_problems]
 
-    rows: list[dict] = []
+    workers = config.runtime.max_concurrency
     mixed_fmt = json_schema_format(MIXED_SCHEMA_NAME, MIXED_SCHEMA)
-    for pid in order:
-        if len(members[pid]) < 2:
-            continue
+
+    def mixed_check(pid: str) -> dict:
         sample = [texts[r] for r in sample_members(members[pid], cfg.sample_size)]
         reply = tracked.chat(mixed_messages(config.granularity, sample), response_format=mixed_fmt,
                              model=cfg.deployment).json()
-        rows.append({"check": "mixed", "problem_id": pid, "other_problem_id": None,
-                     "verdict": "mixed" if reply["mixed"] else "one_problem", "reason": str(reply["reason"])})
+        return {"check": "mixed", "problem_id": pid, "other_problem_id": None,
+                "verdict": "mixed" if reply["mixed"] else "one_problem", "reason": str(reply["reason"])}
 
     split_fmt = json_schema_format(SPLIT_SCHEMA_NAME, SPLIT_SCHEMA)
-    for a, b in _split_pairs(run_result, order, members, texts, cfg.neighbours, config, tracked):
+
+    def split_check(pair: tuple[str, str]) -> dict:
+        a, b = pair
         sa = [texts[r] for r in sample_members(members[a], cfg.split_sample_size)]
         sb = [texts[r] for r in sample_members(members[b], cfg.split_sample_size)]
         reply = tracked.chat(split_messages(config.granularity, sa, sb), response_format=split_fmt,
                              model=cfg.deployment).json()
-        rows.append({"check": "split", "problem_id": a, "other_problem_id": b,
-                     "verdict": "split" if reply["same_problem"] else "distinct", "reason": str(reply["reason"])})
+        return {"check": "split", "problem_id": a, "other_problem_id": b,
+                "verdict": "split" if reply["same_problem"] else "distinct", "reason": str(reply["reason"])}
+
+    rows = parallel_map(mixed_check, [pid for pid in order if len(members[pid]) >= 2], workers)
+    pairs = _split_pairs(run_result, order, members, texts, cfg.neighbours, config, tracked)
+    rows += parallel_map(split_check, pairs, workers)
 
     tracked.counters.runtime_s = time.perf_counter() - start
     return JudgeResult(checks=pd.DataFrame(rows, columns=JUDGE_COLUMNS), usage=tracked.counters)
@@ -158,6 +164,7 @@ def _ticket_vectors(run_result, rows, texts, config, backend) -> dict:
         vectors = dict(zip(run_result.embedding_rows, run_result.embeddings))
     missing = [r for r in rows if r not in vectors]
     if missing:
-        new = embed_texts(backend, [texts[r] for r in missing], config.backend.embed_batch_size)
+        new = embed_texts(backend, [texts[r] for r in missing], config.backend.embed_batch_size,
+                          config.runtime.max_concurrency)
         vectors.update(zip(missing, new))
     return {r: np.asarray(v, dtype=float) / max(np.linalg.norm(v), 1e-12) for r, v in vectors.items()}

@@ -17,6 +17,7 @@ import numpy as np
 
 from ..backend import json_schema_format
 from ..clustering import agglomerative, centroid_confidence, groups_from_labels
+from ..concurrency import parallel_map
 from ..naming import sample_members
 from ..prompts import (
     MERGE_SCHEMA, MERGE_SCHEMA_NAME, VERIFICATION_SCHEMA, VERIFICATION_SCHEMA_NAME, merge_messages,
@@ -46,12 +47,17 @@ def run(ctx: MethodContext) -> list[ProblemDraft]:
     verdicts: dict[frozenset[int], bool] = {}  # cluster -> is one Problem (never re-asked)
     verify_fmt = json_schema_format(VERIFICATION_SCHEMA_NAME, VERIFICATION_SCHEMA)
 
-    def is_one_problem(c: _Cluster) -> bool:
-        if c.key not in verdicts:
-            sample = [texts[p] for p in sample_members(c.positions, cfg.sample_size)]
-            reply = ctx.backend.chat(verification_messages(ctx.config.granularity, sample), response_format=verify_fmt)
-            verdicts[c.key] = bool(reply.json()["one_problem"])
-        return verdicts[c.key]
+    def ask_one_problem(c: _Cluster) -> bool:
+        sample = [texts[p] for p in sample_members(c.positions, cfg.sample_size)]
+        reply = ctx.backend.chat(verification_messages(ctx.config.granularity, sample), response_format=verify_fmt)
+        return bool(reply.json()["one_problem"])
+
+    def verify(current: list[_Cluster]) -> int:
+        """Ask, in parallel, about every multi-Ticket cluster not verified yet; returns how many were asked."""
+        todo = list({c.key: c for c in current if len(c.positions) >= 2 and c.key not in verdicts}.values())
+        for c, verdict in zip(todo, parallel_map(ask_one_problem, todo, ctx.config.runtime.max_concurrency)):
+            verdicts[c.key] = verdict
+        return len(todo)
 
     rejected: set[frozenset[frozenset[int]]] = set()  # merge pairs the LLM said no to
     merge_fmt = json_schema_format(MERGE_SCHEMA_NAME, MERGE_SCHEMA)
@@ -87,13 +93,10 @@ def run(ctx: MethodContext) -> list[ProblemDraft]:
 
     for iteration in range(1, cfg.max_iterations + 1):
         next_clusters: list[_Cluster] = []
-        checked = mixed = splits = 0
+        verified = verify(clusters)
+        mixed = splits = 0
         for c in clusters:
-            if len(c.positions) < 2:
-                next_clusters.append(c)
-                continue
-            checked += c.key not in verdicts
-            if is_one_problem(c):
+            if len(c.positions) < 2 or verdicts[c.key]:
                 next_clusters.append(c)
                 continue
             mixed += 1
@@ -101,7 +104,7 @@ def run(ctx: MethodContext) -> list[ProblemDraft]:
             splits += len(parts) > 1
             next_clusters.extend(parts)
         clusters, merges = merge_step(next_clusters)
-        ctx.log(f"method_b iteration {iteration}: verified={checked} mixed={mixed} splits={splits} "
+        ctx.log(f"method_b iteration {iteration}: verified={verified} mixed={mixed} splits={splits} "
                 f"merges={merges} clusters={len(clusters)}")
         if not splits and not merges:
             ctx.log(f"method_b: stable after {iteration} iteration(s)")

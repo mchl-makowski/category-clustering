@@ -13,6 +13,7 @@ from typing import Callable
 import pandas as pd
 
 from .backend import Backend, json_schema_format
+from .concurrency import parallel_map
 from .config import Config, GranularityLevel
 from .prompts import problem_definition
 
@@ -41,10 +42,14 @@ def symptom_summaries(texts: pd.Series, config: Config, backend: Backend,
                       log: Callable[[str], None]) -> pd.Series:
     """One LLM call per Ticket; returns a Series aligned with `texts` holding single-line summaries."""
     fmt = json_schema_format(SUMMARY_SCHEMA_NAME, SUMMARY_SCHEMA)
-    out = {}
-    for row, text in texts.items():
+
+    def summarise(text: str) -> str:
         reply = backend.chat(summary_messages(config.granularity, text), response_format=fmt).json()
-        summary = " ".join(str(reply["summary"]).split())
+        return " ".join(str(reply["summary"]).split())
+
+    summaries = parallel_map(summarise, list(texts), config.runtime.max_concurrency)
+    out = {}
+    for (row, text), summary in zip(texts.items(), summaries):
         out[row] = summary or " ".join(text.split())  # never hand an empty string to grouping
         if config.symptom_summary.log_summaries:
             log(f"summary row={row}: {out[row]}")

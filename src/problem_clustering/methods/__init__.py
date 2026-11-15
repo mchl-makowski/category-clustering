@@ -33,7 +33,8 @@ class MethodContext:
     def embeddings(self) -> np.ndarray:
         """Embeddings of `texts` (row order = `texts.index`), computed once per run."""
         if self._embeddings is None:
-            self._embeddings = embed_texts(self.backend, list(self.texts), self.config.backend.embed_batch_size)
+            self._embeddings = embed_texts(self.backend, list(self.texts), self.config.backend.embed_batch_size,
+                                           self.config.runtime.max_concurrency)
         return self._embeddings
 
 
