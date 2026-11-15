@@ -17,5 +17,13 @@ method_a:
   distance_threshold: 0.35   # cosine distance; lower = finer Problems
   linkage: average
 
+method_b:
+  coarse_threshold: 0.6      # cosine distance of the starting coarse clusters (looser than method_a)
+  sample_size: 10            # Tickets shown to the LLM per verification / merge check
+  split_step: 0.1            # mixed cluster re-clustered at its threshold minus this
+  merge_neighbours: 1        # nearest-centroid neighbours LLM-checked for a merge
+  max_iterations: 5
+  linkage: average
+
 output:
   example_tickets: 5

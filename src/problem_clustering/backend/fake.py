@@ -190,3 +190,15 @@ def _naming(req: ChatRequest) -> dict:
     counts = Counter(w for t in tickets for w in set(_tokens(t)) if len(w) >= 4 and w not in STOPWORDS)
     top = [w for w, _ in counts.most_common(3)] or ["inne"]
     return {"name": "Problem: " + " ".join(top), "description": "Zgłoszenia dotyczące: " + ", ".join(top) + "."}
+
+
+@default_handler("cluster_verification")
+def _cluster_verification(req: ChatRequest) -> dict:
+    """Method B: accept every cluster as one Problem (stable after one iteration)."""
+    return {"one_problem": True, "reason": "Fake: domyślnie jeden Problem."}
+
+
+@default_handler("problem_merge")
+def _problem_merge(req: ChatRequest) -> dict:
+    """Method B: reject every merge."""
+    return {"same_problem": False, "reason": "Fake: domyślnie różne Problemy."}

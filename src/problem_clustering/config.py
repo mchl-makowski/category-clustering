@@ -39,6 +39,15 @@ class MethodAConfig(Section):
     linkage: Literal["average", "complete", "single"] = "average"
 
 
+class MethodBConfig(Section):
+    coarse_threshold: float = 0.6  # cosine distance for the starting coarse clusters (looser than A)
+    sample_size: int = 10  # Tickets shown to the LLM per verification / merge check
+    split_step: float = 0.1  # a mixed cluster is re-clustered at its threshold minus this
+    merge_neighbours: int = 1  # nearest-centroid neighbours LLM-checked for a merge, per Problem
+    max_iterations: int = 5
+    linkage: Literal["average", "complete", "single"] = "average"
+
+
 class OutputConfig(Section):
     example_tickets: int = 5  # example Tickets per Problem in the catalogue
 
@@ -48,6 +57,7 @@ class Config(Section):
     backend: BackendConfig = BackendConfig()
     naming: NamingConfig = NamingConfig()
     method_a: MethodAConfig = MethodAConfig()
+    method_b: MethodBConfig = MethodBConfig()
     output: OutputConfig = OutputConfig()
 
 
