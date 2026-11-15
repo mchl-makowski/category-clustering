@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 NOTEBOOK = Path(__file__).parents[1] / "notebooks" / "compare.ipynb"
-PUBLIC_API = {"load_config", "load_tickets", "run_method", "judge", "write_outputs", "compare"}
+PUBLIC_API = {"load_config", "load_tickets", "run_method", "judge", "judge_safely", "write_outputs", "compare"}
 
 
 def _code_cells():
@@ -80,7 +80,7 @@ def test_loads_existing_workbooks_instead_of_running(executed, monkeypatch, tmp_
     def boom(*a, **k):
         raise AssertionError("run_method called although every workbook was given")
 
-    ns2["run_method"] = ns2["judge"] = boom  # imports live in the parameter cell
+    ns2["run_method"] = ns2["judge_safely"] = boom  # imports live in the parameter cell
     for src in rest:
         exec(src, ns2)
     assert ns2["workbooks"] == ns["workbooks"]

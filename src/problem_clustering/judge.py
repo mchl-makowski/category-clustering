@@ -14,12 +14,14 @@ Relies only on RunResult fields, so it works for every Method.
 from __future__ import annotations
 
 import time
+from datetime import datetime
 from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
 
 from .backend import Backend, TrackedBackend, UsageCounters, embed_texts, json_schema_format
+from .backend.runtime import with_runtime
 from .concurrency import parallel_map
 from .config import Config
 from .naming import sample_members
@@ -95,7 +97,7 @@ def split_messages(level, texts_a: list[str], texts_b: list[str]) -> list[dict]:
 def judge(run_result: RunResult, config: Config, backend: Backend) -> JudgeResult:
     cfg = config.judge
     start = time.perf_counter()
-    tracked = TrackedBackend(backend)
+    tracked = TrackedBackend(with_runtime(backend, config)[0])  # same retry + disk cache as run_method
     texts = model_texts(run_result.tickets)
 
     members: dict[str, list] = {}
@@ -135,6 +137,17 @@ def judge(run_result: RunResult, config: Config, backend: Backend) -> JudgeResul
 
     tracked.counters.runtime_s = time.perf_counter() - start
     return JudgeResult(checks=pd.DataFrame(rows, columns=JUDGE_COLUMNS), usage=tracked.counters)
+
+
+def judge_safely(run_result: RunResult, config: Config, backend: Backend) -> JudgeResult | None:
+    """`judge`, but a Judge failure never loses a finished run: on any error the error is
+    appended to `run_result.log` and None is returned, so the run can still be written."""
+    try:
+        return judge(run_result, config, backend)
+    except Exception as exc:  # noqa: BLE001 - any Judge failure; the run itself is done
+        run_result.log.append(f"[{datetime.now():%H:%M:%S}] judge failed, run written without Judge: "
+                              f"{type(exc).__name__}: {exc}")
+        return None
 
 
 def _split_pairs(run_result, order, members, texts, k, config, backend) -> list[tuple[str, str]]:
