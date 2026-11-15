@@ -13,9 +13,11 @@ naming:
   sample_size: 8             # Tickets shown to the LLM when naming a Problem
 
 method_a:
-  algorithm: agglomerative
+  algorithm: agglomerative  # agglomerative | hdbscan
   distance_threshold: 0.35   # cosine distance; lower = finer Problems
   linkage: average
+  min_cluster_size: 2         # hdbscan only; noise Tickets become one-Ticket Problems
+  min_samples: null          # hdbscan only; null = min_cluster_size
 
 runtime:
   cache_dir: .cache/problem_clustering  # disk cache of embeddings + LLM replies; remove to disable
@@ -27,3 +29,7 @@ runtime:
 
 output:
   example_tickets: 5
+
+symptom_summary:
+  enabled: false             # true = LLM rewrites each Ticket into one symptom + context line; that line is grouped
+  log_summaries: false       # true = write each summary into the run log

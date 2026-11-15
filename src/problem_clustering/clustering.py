@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
-from sklearn.cluster import AgglomerativeClustering
+from sklearn.cluster import HDBSCAN, AgglomerativeClustering
 
 
 def agglomerative(vectors: np.ndarray, distance_threshold: float, linkage: str = "average") -> np.ndarray:
@@ -14,6 +14,20 @@ def agglomerative(vectors: np.ndarray, distance_threshold: float, linkage: str =
         n_clusters=None, metric="cosine", linkage=linkage, distance_threshold=distance_threshold
     )
     return model.fit_predict(vectors)
+
+
+def hdbscan(vectors: np.ndarray, min_cluster_size: int = 2, min_samples: int | None = None) -> np.ndarray:
+    """Cluster labels from cosine HDBSCAN; each noise point gets its own label (no "unassigned")."""
+    n = len(vectors)
+    if n < max(2, min_cluster_size):
+        labels = np.full(n, -1)
+    else:
+        model = HDBSCAN(min_cluster_size=min_cluster_size, min_samples=min_samples, metric="cosine", copy=True)
+        labels = model.fit_predict(vectors)
+    noise = np.flatnonzero(labels < 0)
+    labels = labels.copy()
+    labels[noise] = labels.max(initial=-1) + 1 + np.arange(len(noise))
+    return labels
 
 
 def centroid_confidence(vectors: np.ndarray) -> np.ndarray:

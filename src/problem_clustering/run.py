@@ -24,6 +24,7 @@ from .result import (
     ASSIGNMENT_COLUMNS, CATALOGUE_COLUMNS, EMPTY_PROBLEM_DESCRIPTION, EMPTY_PROBLEM_ID, EMPTY_PROBLEM_NAME,
     ProblemDraft, RunResult,
 )
+from .summary import symptom_summaries
 from .text import model_texts
 from .tickets import ID_COLUMN, TITLE_COLUMN
 
@@ -49,7 +50,11 @@ def run_method(tickets: pd.DataFrame, method: str, config: Config, backend: Back
     empty_rows = [i for i in tickets.index if i not in texts.index]
     say(f"non-empty={len(texts)} empty(X-0000)={len(empty_rows)}")
 
-    ctx = MethodContext(tickets=tickets, texts=texts, config=config, backend=tracked, log=say)
+    grouping_texts = texts
+    if config.symptom_summary.enabled and len(texts):
+        grouping_texts = symptom_summaries(texts, config, tracked, say)  # grouped instead of raw text
+
+    ctx = MethodContext(tickets=tickets, texts=grouping_texts, config=config, backend=tracked, log=say)
     drafts = method_fn(ctx) if len(texts) else []
     _check_partition(drafts, texts.index)
     drafts.sort(key=lambda d: (-len(d.members), min(d.members)))
