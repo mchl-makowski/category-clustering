@@ -1,0 +1,3 @@
+# Runs as a script on Azure Foundry, using Foundry-deployed models
+
+The classifier is a quick-win script, run on Azure Foundry compute against an Excel file uploaded to the Foundry instance. All embedding and LLM calls go to models deployed in that Foundry project (text-embedding-3-large, GPT-4/5 series). A working solution matters more than a scalable or sophisticated one, so there are no local or third-party model backends and no production deployment. The development machine has no access to LLM APIs, so code is written blind and the requester runs it in Foundry. At about 2500 Tickets per run, per-Ticket LLM calls (method C) are affordable.

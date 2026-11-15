@@ -29,7 +29,7 @@ Input is an Excel export with the columns `Typ`, `Numer I/SR`, `Zgłoszenie`, `T
 
 - **Only `Tytuł` and `Opis` may be used for classification.** This is an acceptance criterion. Never feed `Grupa odpowiedzialna`, `Typ`, `Status` or any other column into the embeddings, clustering or LLM prompts.
 - `Numer I/SR` is the ticket ID. Every other column passes through to the output unchanged.
-- Development uses **synthetic, labelled data**. The requester runs the evaluation on real data, so the code must not depend on anything only the synthetic set has, apart from the ground-truth labels used for evaluation.
+- **No synthetic dataset.** The dev machine has no LLM API access. The requester runs everything on the sample Excel in Azure Foundry (see `docs/adr/0001-azure-foundry-runtime.md`).
 
 ## Evaluation
 
@@ -43,9 +43,9 @@ The notebook must reproduce this comparison on a given sample.
 
 Integration with the Service Desk system, live classification, routing tickets to resolver groups, and any UI.
 
-## Open decisions (settle during planning)
+## Planning decisions
 
-Embedding model and LLM (local or API), and any data constraints; clustering algorithms and how to tune them; preprocessing and text cleaning; exact metrics and evaluation sample size; expected data volume, and whether method C is affordable at that volume; CLI interface and config format.
+Settled on 2026-11-15. See "Decided during planning" in `TASK.md`, plus `GLOSSARY.md` (use its terms) and `docs/adr/`.
 
 ## Agent skills
 
