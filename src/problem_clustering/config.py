@@ -72,6 +72,16 @@ class OutputConfig(Section):
     example_tickets: int = 5  # example Tickets per Problem in the catalogue
 
 
+class JudgeConfig(Section):
+    """Judge: fixed model checking any run for Mixed and Split Problems."""
+
+    deployment: str = "gpt-4o"  # fixed Judge chat deployment, independent of backend.chat_deployment
+    sample_size: int = 8  # Tickets shown per Mixed check
+    split_sample_size: int = 4  # Tickets shown per Problem in a Split check
+    neighbours: int = 3  # nearest Problems (by centroid) checked for a Split Problem
+    max_problems: int | None = None  # judge only the N largest Problems
+
+
 class Config(Section):
     granularity: GranularityLevel = "medium"
     backend: BackendConfig = BackendConfig()
@@ -81,6 +91,7 @@ class Config(Section):
     output: OutputConfig = OutputConfig()
     symptom_summary: SymptomSummaryConfig = SymptomSummaryConfig()
     runtime: RuntimeConfig = RuntimeConfig()
+    judge: JudgeConfig = JudgeConfig()
 
 
 def _parse_overrides(overrides: list[str] | dict[str, Any] | None) -> dict[str, Any]:
