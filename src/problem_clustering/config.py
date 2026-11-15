@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 GranularityLevel = Literal["coarse", "medium", "fine"]
 
@@ -107,6 +108,22 @@ class Config(Section):
     judge: JudgeConfig = JudgeConfig()
 
 
+class DeploymentSettings(BaseSettings):
+    """Deployment names from env (or `.env`): FOUNDRY_EMBEDDING_DEPLOYMENT, FOUNDRY_CHAT_DEPLOYMENT,
+    FOUNDRY_JUDGE_DEPLOYMENT. A set variable wins over YAML; an explicit `--set` wins over env."""
+
+    model_config = SettingsConfigDict(env_prefix="FOUNDRY_", env_file=".env", extra="ignore")
+
+    embedding_deployment: str | None = None
+    chat_deployment: str | None = None
+    judge_deployment: str | None = None
+
+    def as_overrides(self) -> dict[str, str]:
+        keys = {"embedding_deployment": "backend.embedding_deployment",
+                "chat_deployment": "backend.chat_deployment", "judge_deployment": "judge.deployment"}
+        return {keys[f]: v for f, v in self.model_dump().items() if v}
+
+
 def _parse_overrides(overrides: list[str] | dict[str, Any] | None) -> dict[str, Any]:
     if not overrides:
         return {}
@@ -125,11 +142,13 @@ def load_config(
     yaml_path: str | Path | None = None,
     overrides: list[str] | dict[str, Any] | None = None,
 ) -> Config:
-    """Load Config from YAML (optional) and apply dotted-key overrides (`method_a.distance_threshold=0.3`)."""
+    """Load Config from YAML (optional), then deployment names from env (`DeploymentSettings`),
+    then dotted-key overrides (`method_a.distance_threshold=0.3`); later wins."""
     data: dict[str, Any] = {}
     if yaml_path is not None:
         data = yaml.safe_load(Path(yaml_path).read_text(encoding="utf-8")) or {}
-    for key, value in _parse_overrides(overrides).items():
+    layered = {**DeploymentSettings().as_overrides(), **_parse_overrides(overrides)}
+    for key, value in layered.items():
         node = data
         *parents, leaf = key.split(".")
         for part in parents:

@@ -1,5 +1,6 @@
 # Run configuration. Any value can be overridden from the CLI: --set method_a.distance_threshold=0.3
 # Secrets/endpoint come from env: FOUNDRY_API_KEY, FOUNDRY_ENDPOINT, FOUNDRY_API_VERSION.
+# FOUNDRY_EMBEDDING_DEPLOYMENT / FOUNDRY_CHAT_DEPLOYMENT / FOUNDRY_JUDGE_DEPLOYMENT, when set, override the deployment names below.
 
 granularity: medium          # coarse | medium | fine (Problem definition in every LLM prompt)
 
