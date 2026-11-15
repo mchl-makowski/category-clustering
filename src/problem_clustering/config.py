@@ -39,6 +39,13 @@ class MethodAConfig(Section):
     linkage: Literal["average", "complete", "single"] = "average"
 
 
+class SymptomSummaryConfig(Section):
+    """Optional LLM rewrite of each Ticket into one Polish symptom + context line, grouped instead of raw text."""
+
+    enabled: bool = False
+    log_summaries: bool = False  # write each Ticket's summary into the run log
+
+
 class OutputConfig(Section):
     example_tickets: int = 5  # example Tickets per Problem in the catalogue
 
@@ -49,6 +56,7 @@ class Config(Section):
     naming: NamingConfig = NamingConfig()
     method_a: MethodAConfig = MethodAConfig()
     output: OutputConfig = OutputConfig()
+    symptom_summary: SymptomSummaryConfig = SymptomSummaryConfig()
 
 
 def _parse_overrides(overrides: list[str] | dict[str, Any] | None) -> dict[str, Any]:

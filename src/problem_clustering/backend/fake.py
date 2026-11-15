@@ -190,3 +190,10 @@ def _naming(req: ChatRequest) -> dict:
     counts = Counter(w for t in tickets for w in set(_tokens(t)) if len(w) >= 4 and w not in STOPWORDS)
     top = [w for w, _ in counts.most_common(3)] or ["inne"]
     return {"name": "Problem: " + " ".join(top), "description": "Zgłoszenia dotyczące: " + ", ".join(top) + "."}
+
+
+@default_handler("symptom_summary")
+def _symptom_summary(req: ChatRequest) -> dict:
+    """Echo the Ticket text flattened to one lowercase line (keeps lexical grouping offline)."""
+    text = req.last_user.split("\n", 1)[-1]
+    return {"summary": " ".join(_tokens(text))}
