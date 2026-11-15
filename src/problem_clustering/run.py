@@ -59,7 +59,7 @@ def run_method(tickets: pd.DataFrame, method: str, config: Config, backend: Back
     _check_partition(drafts, texts.index)
     drafts.sort(key=lambda d: (-len(d.members), min(d.members)))
 
-    name_problems(drafts, texts, config, tracked)
+    name_problems(drafts, texts, config, tracked, say)
 
     assignments = pd.DataFrame(index=tickets.index, columns=ASSIGNMENT_COLUMNS, dtype=object)
     catalogue_rows = []

@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from ..backend import ToolCall, json_schema_format
+from ..backend import ContentFilteredError, ToolCall, json_schema_format
 from ..clustering import agglomerative, groups_from_labels
 from ..prompts import (
     AGENT_NUDGE, CONSOLIDATION_SCHEMA, CONSOLIDATION_SCHEMA_NAME, agent_messages, agent_tools,
@@ -173,7 +173,11 @@ class _Agent:
         decision = None
         while used < budget and decision is None:
             # snapshot: the conversation grows after the call; backends/caches/recorders may keep the list
-            reply = self.ctx.backend.chat(list(messages), tools=self.tools)
+            try:
+                reply = self.ctx.backend.chat(list(messages), tools=self.tools)
+            except ContentFilteredError:
+                self.ctx.log(f"method_c: row {row} agent reply blocked by content filter")
+                break
             if not reply.tool_calls:
                 used += 1
                 messages.append({"role": "assistant", "content": reply.content or ""})
@@ -233,8 +237,12 @@ class _Agent:
                     "ticket_count": len(p.members),
                     "examples": [self.texts[r] for r in p.members[: self.cfg.example_tickets]]} for p in chunk]
         fmt = json_schema_format(CONSOLIDATION_SCHEMA_NAME, CONSOLIDATION_SCHEMA)
-        reply = self.ctx.backend.chat(consolidation_messages(self.ctx.config.granularity, payload),
-                                      response_format=fmt)
+        try:
+            reply = self.ctx.backend.chat(consolidation_messages(self.ctx.config.granularity, payload),
+                                          response_format=fmt)
+        except ContentFilteredError:
+            self.ctx.log("method_c: consolidation blocked by content filter, skipped")
+            return
         try:
             merges = reply.json()["merges"]
         except (ValueError, TypeError, KeyError):

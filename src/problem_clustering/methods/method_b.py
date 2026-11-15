@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ..backend import json_schema_format
+from ..backend import ContentFilteredError, json_schema_format
 from ..clustering import agglomerative, centroid_confidence, groups_from_labels
 from ..concurrency import parallel_map
 from ..naming import sample_members
@@ -49,7 +49,12 @@ def run(ctx: MethodContext) -> list[ProblemDraft]:
 
     def ask_one_problem(c: _Cluster) -> bool:
         sample = [texts[p] for p in sample_members(c.positions, cfg.sample_size)]
-        reply = ctx.backend.chat(verification_messages(ctx.config.granularity, sample), response_format=verify_fmt)
+        try:
+            reply = ctx.backend.chat(verification_messages(ctx.config.granularity, sample), response_format=verify_fmt)
+        except ContentFilteredError:
+            ctx.log(f"method_b: verification blocked by content filter, kept as one Problem "
+                    f"({len(c.positions)} Tickets)")
+            return True
         return bool(reply.json()["one_problem"])
 
     def verify(current: list[_Cluster]) -> int:
@@ -77,7 +82,12 @@ def run(ctx: MethodContext) -> list[ProblemDraft]:
                 [texts[p] for p in sample_members(a.positions, half)],
                 [texts[p] for p in sample_members(b.positions, half)],
             )
-            if not bool(ctx.backend.chat(msgs, response_format=merge_fmt).json()["same_problem"]):
+            try:
+                same = bool(ctx.backend.chat(msgs, response_format=merge_fmt).json()["same_problem"])
+            except ContentFilteredError:
+                ctx.log("method_b: merge check blocked by content filter, not merged")
+                same = False
+            if not same:
                 rejected.add(pair)
                 continue
             joined = _Cluster(sorted(a.positions + b.positions), max(a.threshold, b.threshold))

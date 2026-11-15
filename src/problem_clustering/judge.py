@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from .backend import Backend, TrackedBackend, UsageCounters, embed_texts, json_schema_format
+from .backend import Backend, ContentFilteredError, TrackedBackend, UsageCounters, embed_texts, json_schema_format
 from .backend.runtime import with_runtime
 from .concurrency import parallel_map
 from .config import Config
@@ -30,6 +30,8 @@ from .result import EMPTY_PROBLEM_ID, RunResult
 from .text import model_texts
 
 JUDGE_COLUMNS = ["check", "problem_id", "other_problem_id", "verdict", "reason"]
+ERROR_VERDICT = "error"  # check got no verdict (e.g. content filter); excluded from purity / split rate
+FILTERED_REASON = "content filter: the Judge prompt or reply was blocked"
 
 MIXED_SCHEMA_NAME = "judge_mixed"
 MIXED_SCHEMA = {
@@ -62,14 +64,16 @@ class JudgeResult:
 
     @property
     def purity(self) -> float | None:
-        """Share of Mixed-checked Problems judged to be one Problem."""
+        """Share of Mixed-checked Problems judged to be one Problem ("error" checks excluded)."""
         m = self.mixed_checks
+        m = m[m["verdict"] != ERROR_VERDICT]
         return float((m["verdict"] == "one_problem").mean()) if len(m) else None
 
     @property
     def split_rate(self) -> float | None:
-        """Share of judged Problem pairs flagged as a Split Problem."""
+        """Share of judged Problem pairs flagged as a Split Problem ("error" checks excluded)."""
         s = self.split_checks
+        s = s[s["verdict"] != ERROR_VERDICT]
         return float((s["verdict"] == "split").mean()) if len(s) else None
 
 
@@ -115,10 +119,13 @@ def judge(run_result: RunResult, config: Config, backend: Backend) -> JudgeResul
 
     def mixed_check(pid: str) -> dict:
         sample = [texts[r] for r in sample_members(members[pid], cfg.sample_size)]
-        reply = tracked.chat(mixed_messages(config.granularity, sample), response_format=mixed_fmt,
-                             model=cfg.deployment).json()
-        return {"check": "mixed", "problem_id": pid, "other_problem_id": None,
-                "verdict": "mixed" if reply["mixed"] else "one_problem", "reason": str(reply["reason"])}
+        row = {"check": "mixed", "problem_id": pid, "other_problem_id": None}
+        try:
+            reply = tracked.chat(mixed_messages(config.granularity, sample), response_format=mixed_fmt,
+                                 model=cfg.deployment).json()
+        except ContentFilteredError:
+            return {**row, "verdict": ERROR_VERDICT, "reason": FILTERED_REASON}
+        return {**row, "verdict": "mixed" if reply["mixed"] else "one_problem", "reason": str(reply["reason"])}
 
     split_fmt = json_schema_format(SPLIT_SCHEMA_NAME, SPLIT_SCHEMA)
 
@@ -126,10 +133,13 @@ def judge(run_result: RunResult, config: Config, backend: Backend) -> JudgeResul
         a, b = pair
         sa = [texts[r] for r in sample_members(members[a], cfg.split_sample_size)]
         sb = [texts[r] for r in sample_members(members[b], cfg.split_sample_size)]
-        reply = tracked.chat(split_messages(config.granularity, sa, sb), response_format=split_fmt,
-                             model=cfg.deployment).json()
-        return {"check": "split", "problem_id": a, "other_problem_id": b,
-                "verdict": "split" if reply["same_problem"] else "distinct", "reason": str(reply["reason"])}
+        row = {"check": "split", "problem_id": a, "other_problem_id": b}
+        try:
+            reply = tracked.chat(split_messages(config.granularity, sa, sb), response_format=split_fmt,
+                                 model=cfg.deployment).json()
+        except ContentFilteredError:
+            return {**row, "verdict": ERROR_VERDICT, "reason": FILTERED_REASON}
+        return {**row, "verdict": "split" if reply["same_problem"] else "distinct", "reason": str(reply["reason"])}
 
     rows = parallel_map(mixed_check, [pid for pid in order if len(members[pid]) >= 2], workers)
     pairs = _split_pairs(run_result, order, members, texts, cfg.neighbours, config, tracked)

@@ -53,6 +53,11 @@ class TransientBackendError(RuntimeError):
     """A call that may succeed if retried (rate limit, timeout, 5xx). See `retry.is_transient`."""
 
 
+class ContentFilteredError(RuntimeError):
+    """Azure content filter blocked the prompt (HTTP 400 `content_filter`) or the reply
+    (`finish_reason="content_filter"` / refusal). Never retried; every LLM step falls back."""
+
+
 class Backend(Protocol):
     def embed(self, texts: list[str]) -> EmbeddingReply:
         """One embeddings request for `texts` (callers batch; see `embed_texts`)."""

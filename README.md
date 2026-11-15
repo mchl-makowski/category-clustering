@@ -41,7 +41,7 @@ Read by a pydantic-settings class (`backend/azure.py`, prefix `FOUNDRY_`), from 
 | Variable | Required | Meaning |
 |---|---|---|
 | `FOUNDRY_API_KEY` | yes | API key of the Foundry / Azure OpenAI resource |
-| `FOUNDRY_ENDPOINT` | yes | Resource endpoint, e.g. `https://<resource>.openai.azure.com/` |
+| `FOUNDRY_ENDPOINT` | yes | Resource base URL, e.g. `https://<resource>.openai.azure.com/` (or `*.cognitiveservices.azure.com`, `*.services.ai.azure.com`); no `/openai/...` path. A non-https URL or a path fails at startup, an unknown host warns |
 | `FOUNDRY_API_VERSION` | no (default `2024-10-21`) | Azure OpenAI API version |
 | `FOUNDRY_EMBEDDING_DEPLOYMENT` | no | Overrides `backend.embedding_deployment` |
 | `FOUNDRY_CHAT_DEPLOYMENT` | no | Overrides `backend.chat_deployment` |
@@ -170,6 +170,10 @@ Copy [`config.example.yaml`](config.example.yaml) and edit it. Every section rej
 | `backoff_initial_s` | `1.0` | Wait before retry 1 |
 | `backoff_multiplier` | `2.0` | Wait multiplier per retry |
 | `backoff_max_s` | `60.0` | Max wait between retries |
+
+### Content filter
+
+When the Azure content filter blocks a prompt (HTTP 400 `content_filter`) or a reply (`finish_reason=content_filter`, refusal), the run does not stop. The step falls back and writes a `content filter` line to the `.txt` log: Symptom Summary uses the raw masked text; naming names the Problem after its first Ticket's title; Method B keeps a cluster as one Problem and does not merge; the Method C agent gives the Ticket a new Problem (`zgadywane`) and consolidation skips that group; a Judge check gets verdict `error` and is left out of purity and split rate. Retries happen only in `runtime` (the SDK's own retries are off).
 
 ### Cache
 
