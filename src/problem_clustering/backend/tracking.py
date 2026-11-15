@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 
 from .base import Backend, ChatReply, EmbeddingReply
@@ -24,16 +25,25 @@ class TrackedBackend:
     def __init__(self, inner: Backend, counters: UsageCounters | None = None):
         self.inner = inner
         self.counters = counters or UsageCounters()
+        self._lock = threading.Lock()  # thread-safe under parallel_map
 
     def embed(self, texts: list[str]) -> EmbeddingReply:
         reply = self.inner.embed(texts)
+        with self._lock:
+            self._add_embed(reply)
+        return reply
+
+    def _add_embed(self, reply: EmbeddingReply) -> None:
         self.counters.embedding_calls += 1
         self.counters.embedding_tokens += reply.usage.prompt_tokens
-        return reply
 
     def chat(self, messages, tools=None, response_format=None, model=None) -> ChatReply:
         reply = self.inner.chat(messages, tools=tools, response_format=response_format, model=model)
+        with self._lock:
+            self._add_chat(reply)
+        return reply
+
+    def _add_chat(self, reply: ChatReply) -> None:
         self.counters.llm_calls += 1
         self.counters.prompt_tokens += reply.usage.prompt_tokens
         self.counters.completion_tokens += reply.usage.completion_tokens
-        return reply
