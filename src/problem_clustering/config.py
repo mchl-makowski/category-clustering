@@ -34,9 +34,18 @@ class NamingConfig(Section):
 
 
 class MethodAConfig(Section):
-    algorithm: Literal["agglomerative"] = "agglomerative"  # "hdbscan" added by #6
+    algorithm: Literal["agglomerative", "hdbscan"] = "agglomerative"
     distance_threshold: float = 0.35  # cosine distance, average linkage
     linkage: Literal["average", "complete", "single"] = "average"
+    min_cluster_size: int = 2  # hdbscan: smallest multi-Ticket Problem
+    min_samples: int | None = None  # hdbscan: None = min_cluster_size
+
+
+class SymptomSummaryConfig(Section):
+    """Optional LLM rewrite of each Ticket into one Polish symptom + context line, grouped instead of raw text."""
+
+    enabled: bool = False
+    log_summaries: bool = False  # write each Ticket's summary into the run log
 
 
 class OutputConfig(Section):
@@ -59,6 +68,7 @@ class Config(Section):
     naming: NamingConfig = NamingConfig()
     method_a: MethodAConfig = MethodAConfig()
     output: OutputConfig = OutputConfig()
+    symptom_summary: SymptomSummaryConfig = SymptomSummaryConfig()
     judge: JudgeConfig = JudgeConfig()
 
 
