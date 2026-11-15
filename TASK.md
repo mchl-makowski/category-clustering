@@ -41,11 +41,11 @@ There is no hand-labelled sample. Each method is compared through manual review 
 
 ## Acceptance criteria
 
-- \[ \] All three methods run from the CLI and produce output in the same format.
-- \[ \] The notebook reproduces the comparison on a given sample.
-- \[ \] Only `Tytuł` and `Opis` are used for classification.
-- \[ \] Granularity can be adjusted through parameters.
-- \[ \] A README covers setup and usage.
+- \[x\] All three methods run from the CLI and produce output in the same format.
+- \[x\] The notebook reproduces the comparison on a given sample.
+- \[x\] Only `Tytuł` and `Opis` are used for classification.
+- \[x\] Granularity can be adjusted through parameters.
+- \[x\] A README covers setup and usage.
 
 ## Out of scope
 
