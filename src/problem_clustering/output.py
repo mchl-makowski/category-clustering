@@ -17,13 +17,15 @@ SHEETS = ["Tickets", "Problem Catalogue", "Judge", "Metrics"]
 
 
 def judge_sheet(judge_result: Any | None) -> pd.DataFrame:
-    """Placeholder until the Judge exists: empty sheet."""
-    return pd.DataFrame()
+    from .metrics import judge_sheet as build  # #7
+
+    return build(judge_result)
 
 
 def metrics_sheet(run_result: RunResult, judge_result: Any | None) -> pd.DataFrame:
-    """Placeholder until Metrics exist: empty sheet."""
-    return pd.DataFrame()
+    from .metrics import metrics_sheet as build  # #7
+
+    return build(run_result, judge_result)
 
 
 def _stem(run_result: RunResult, out_dir: Path) -> str:

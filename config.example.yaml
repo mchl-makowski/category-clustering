@@ -19,3 +19,10 @@ method_a:
 
 output:
   example_tickets: 5
+
+judge:
+  deployment: gpt-4o         # fixed Judge model, independent of backend.chat_deployment
+  sample_size: 8             # Tickets per Mixed check
+  split_sample_size: 4       # Tickets per Problem in a Split check
+  neighbours: 3              # nearest Problems checked for a Split Problem
+  max_problems: null         # judge only the N largest Problems (null = all)

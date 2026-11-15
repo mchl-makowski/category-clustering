@@ -190,3 +190,34 @@ def _naming(req: ChatRequest) -> dict:
     counts = Counter(w for t in tickets for w in set(_tokens(t)) if len(w) >= 4 and w not in STOPWORDS)
     top = [w for w, _ in counts.most_common(3)] or ["inne"]
     return {"name": "Problem: " + " ".join(top), "description": "Zgłoszenia dotyczące: " + ", ".join(top) + "."}
+
+
+# --- Judge (#7) -------------------------------------------------------------
+
+def _judge_bullets(text: str) -> list[str]:
+    return [line[2:] for line in text.splitlines() if line.startswith("- ")]
+
+
+def _judge_stems(text: str) -> set[str]:
+    return {s for s in stems(text) if s not in STOPWORDS}
+
+
+@default_handler("judge_mixed")
+def _judge_mixed(req: ChatRequest) -> dict:
+    """Mixed when some sampled Ticket shares no word stem with any other sampled Ticket."""
+    sets = [_judge_stems(t) for t in _judge_bullets(req.last_user)]
+    lonely = [i for i, s in enumerate(sets) if not any(s & o for j, o in enumerate(sets) if j != i)]
+    if lonely:
+        return {"mixed": True, "reason": f"Zgłoszenie {lonely[0] + 1} opisuje inny objaw."}
+    return {"mixed": False, "reason": "Wszystkie zgłoszenia opisują ten sam objaw."}
+
+
+@default_handler("judge_split")
+def _judge_split(req: ChatRequest) -> dict:
+    """Same Problem when the two samples' stem sets overlap by Jaccard >= 0.5."""
+    first, _, second = req.last_user.partition("Problem 2:")
+    a = set().union(*[_judge_stems(t) for t in _judge_bullets(first)])
+    b = set().union(*[_judge_stems(t) for t in _judge_bullets(second)])
+    if len(a & b) / max(len(a | b), 1) >= 0.5:
+        return {"same_problem": True, "reason": "Oba Problemy opisują ten sam objaw."}
+    return {"same_problem": False, "reason": "Problemy opisują różne objawy."}
