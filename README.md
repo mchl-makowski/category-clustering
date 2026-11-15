@@ -97,6 +97,7 @@ Copy [`config.example.yaml`](config.example.yaml) and edit it. Every section rej
 | `embedding_deployment` | `text-embedding-3-large` | Embedding deployment name |
 | `chat_deployment` | `gpt-4o` | Chat deployment used by the Methods and naming |
 | `embed_batch_size` | `64` | Texts per embedding request |
+| `embed_max_chars` | `8000` | Each text is cut to this many chars before embedding (`text-embedding-3-large` takes at most 8191 tokens); LLM prompts are not cut |
 
 **`naming`**: shared Polish naming step for every Problem.
 

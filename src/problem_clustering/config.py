@@ -26,6 +26,9 @@ class BackendConfig(Section):
     embedding_deployment: str = "text-embedding-3-large"
     chat_deployment: str = "gpt-4o"
     embed_batch_size: int = 64
+    # chars of each text sent to the embedding model; text-embedding-3-large takes <= 8191 tokens,
+    # and Polish averages well over 1 char/token, so 8000 chars stays under the limit
+    embed_max_chars: int = 8000
 
 
 class NamingConfig(Section):

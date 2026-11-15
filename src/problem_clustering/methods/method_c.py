@@ -102,7 +102,7 @@ class _Agent:
         k = max(1, min(k, self.cfg.search_max_k))
         if not self.classified:
             return {"results": [], "note": "Brak sklasyfikowanych zgłoszeń; katalog jest pusty."}
-        q = self.ctx.backend.embed([query]).vectors[0]
+        q = self.ctx.embed([query])[0]
         q = q / max(np.linalg.norm(q), 1e-12)
         idx = [self.pos[r] for r in self.classified]
         sims = self.unit[idx] @ q

@@ -188,6 +188,6 @@ def _ticket_vectors(run_result, rows, texts, config, backend) -> dict:
     missing = [r for r in rows if r not in vectors]
     if missing:
         new = embed_texts(backend, [texts[r] for r in missing], config.backend.embed_batch_size,
-                          config.runtime.max_concurrency)
+                          config.runtime.max_concurrency, config.backend.embed_max_chars)
         vectors.update(zip(missing, new))
     return {r: np.asarray(v, dtype=float) / max(np.linalg.norm(v), 1e-12) for r, v in vectors.items()}

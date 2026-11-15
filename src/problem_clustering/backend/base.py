@@ -72,12 +72,17 @@ class Backend(Protocol):
         """One chat completion. `model` overrides the configured chat deployment (e.g. the Judge)."""
 
 
-def embed_texts(backend: Backend, texts: list[str], batch_size: int = 64, max_workers: int = 1) -> np.ndarray:
-    """Embed any number of texts in batches (up to `max_workers` batches in parallel); returns an (n, dim) array."""
+def embed_texts(backend: Backend, texts: list[str], batch_size: int = 64, max_workers: int = 1,
+                max_chars: int | None = None) -> np.ndarray:
+    """Embed any number of texts in batches (up to `max_workers` batches in parallel); returns an (n, dim) array.
+
+    Each text is cut to `max_chars` first (embedding model token limit; see `backend.embed_max_chars`)."""
     from ..concurrency import parallel_map
 
     if not texts:
         return np.zeros((0, 0))
+    if max_chars:
+        texts = [t[:max_chars] for t in texts]
     batches = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
     return np.vstack(parallel_map(lambda batch: backend.embed(batch).vectors, batches, max_workers))
 
