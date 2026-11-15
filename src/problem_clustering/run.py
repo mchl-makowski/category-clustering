@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from .backend import Backend, TrackedBackend
+from .backend.runtime import with_runtime
 from .config import Config
 from .methods import MethodContext, get_method
 from .naming import name_problems
@@ -23,6 +24,7 @@ from .result import (
     ASSIGNMENT_COLUMNS, CATALOGUE_COLUMNS, EMPTY_PROBLEM_DESCRIPTION, EMPTY_PROBLEM_ID, EMPTY_PROBLEM_NAME,
     ProblemDraft, RunResult,
 )
+from .summary import symptom_summaries
 from .text import model_texts
 from .tickets import ID_COLUMN, TITLE_COLUMN
 
@@ -32,11 +34,13 @@ def run_method(tickets: pd.DataFrame, method: str, config: Config, backend: Back
     method_fn = get_method(method)
     started_at = datetime.now()
     start = time.perf_counter()
-    tracked = TrackedBackend(backend)
     log: list[str] = []
 
     def say(line: str) -> None:
         log.append(f"[{datetime.now():%H:%M:%S}] {line}")
+
+    inner, cache_stats = with_runtime(backend, config, say)
+    tracked = TrackedBackend(inner)
 
     say(f"run method={method} tickets={len(tickets)}")
     say("config " + json.dumps(config.model_dump(), ensure_ascii=False))
@@ -46,7 +50,11 @@ def run_method(tickets: pd.DataFrame, method: str, config: Config, backend: Back
     empty_rows = [i for i in tickets.index if i not in texts.index]
     say(f"non-empty={len(texts)} empty(X-0000)={len(empty_rows)}")
 
-    ctx = MethodContext(tickets=tickets, texts=texts, config=config, backend=tracked, log=say)
+    grouping_texts = texts
+    if config.symptom_summary.enabled and len(texts):
+        grouping_texts = symptom_summaries(texts, config, tracked, say)  # grouped instead of raw text
+
+    ctx = MethodContext(tickets=tickets, texts=grouping_texts, config=config, backend=tracked, log=say)
     drafts = method_fn(ctx) if len(texts) else []
     _check_partition(drafts, texts.index)
     drafts.sort(key=lambda d: (-len(d.members), min(d.members)))
@@ -73,6 +81,8 @@ def run_method(tickets: pd.DataFrame, method: str, config: Config, backend: Back
     usage = tracked.counters
     usage.runtime_s = time.perf_counter() - start
     say(f"problems={len(drafts)} (+X-0000)" if empty_rows else f"problems={len(drafts)}")
+    if cache_stats is not None:
+        say(cache_stats.summary())
     say("totals " + " ".join(f"{k}={v:.2f}" if isinstance(v, float) else f"{k}={v}" for k, v in usage.as_dict().items()))
 
     return RunResult(

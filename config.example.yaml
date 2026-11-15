@@ -13,8 +13,26 @@ naming:
   sample_size: 8             # Tickets shown to the LLM when naming a Problem
 
 method_a:
-  algorithm: agglomerative
+  algorithm: agglomerative  # agglomerative | hdbscan
   distance_threshold: 0.35   # cosine distance; lower = finer Problems
+  linkage: average
+  min_cluster_size: 2         # hdbscan only; noise Tickets become one-Ticket Problems
+  min_samples: null          # hdbscan only; null = min_cluster_size
+
+runtime:
+  cache_dir: .cache/problem_clustering  # disk cache of embeddings + LLM replies; remove to disable
+  max_concurrency: 8         # parallel independent model calls
+  max_retries: 5             # on rate-limit/timeout/5xx, then the error is raised
+  backoff_initial_s: 1.0     # wait before retry 1, then x multiplier
+  backoff_multiplier: 2.0
+  backoff_max_s: 60.0
+
+method_b:
+  coarse_threshold: 0.6      # cosine distance of the starting coarse clusters (looser than method_a)
+  sample_size: 10            # Tickets shown to the LLM per verification / merge check
+  split_step: 0.1            # mixed cluster re-clustered at its threshold minus this
+  merge_neighbours: 1        # nearest-centroid neighbours LLM-checked for a merge
+  max_iterations: 5
   linkage: average
 
 method_c:
@@ -28,3 +46,14 @@ method_c:
 
 output:
   example_tickets: 5
+
+symptom_summary:
+  enabled: false             # true = LLM rewrites each Ticket into one symptom + context line; that line is grouped
+  log_summaries: false       # true = write each summary into the run log
+
+judge:
+  deployment: gpt-4o         # fixed Judge model, independent of backend.chat_deployment
+  sample_size: 8             # Tickets per Mixed check
+  split_sample_size: 4       # Tickets per Problem in a Split check
+  neighbours: 3              # nearest Problems checked for a Split Problem
+  max_problems: null         # judge only the N largest Problems (null = all)

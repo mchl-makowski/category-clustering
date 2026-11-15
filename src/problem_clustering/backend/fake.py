@@ -7,6 +7,7 @@
     3. `DEFAULT_HANDLERS` keyed by the `response_format` json_schema name
        (or "tools" when tools are passed and no schema is set).
   No match raises LookupError so a missing script fails loudly.
+- `fake.fail_next(n, exc=None)`: next n calls raise (default TransientBackendError).
 - Records every input: `embed_inputs`, `chat_inputs`, counters `embed_calls`, `chat_calls`.
 
 A reply may be a `ChatReply`, a dict/list (serialised as JSON content), a str
@@ -23,13 +24,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import threading
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Callable
 
 import numpy as np
 
-from .base import ChatReply, EmbeddingReply, ToolCall, Usage
+from .base import ChatReply, EmbeddingReply, ToolCall, TransientBackendError, Usage
 
 _WORD = re.compile(r"\w+", re.UNICODE)
 
@@ -110,6 +112,8 @@ class FakeBackend:
         self.chat_calls = 0
         self._queue: list[Reply] = []
         self._rules: list[tuple[Match, Reply]] = []
+        self._failures: list[Exception] = []
+        self._lock = threading.RLock()  # calls may arrive from parallel_map threads
 
     # --- scripting -------------------------------------------------------
     def queue(self, *replies: Reply) -> FakeBackend:
@@ -121,6 +125,17 @@ class FakeBackend:
         self._rules.insert(0, (match, reply))
         return self
 
+    def fail_next(self, n: int, exc: Exception | None = None) -> FakeBackend:
+        """The next `n` calls (embed or chat) raise `exc` (default TransientBackendError). Still counted."""
+        self._failures.extend([exc or TransientBackendError("fake transient failure")] * n)
+        return self
+
+    def _maybe_fail(self) -> None:
+        with self._lock:
+            exc = self._failures.pop(0) if self._failures else None
+        if exc is not None:
+            raise exc
+
     def all_input_texts(self) -> list[str]:
         """Every string sent to the model: embed inputs, message contents, tool-call args."""
         out = list(self.embed_inputs)
@@ -130,18 +145,25 @@ class FakeBackend:
 
     # --- Backend protocol ------------------------------------------------
     def embed(self, texts: list[str]) -> EmbeddingReply:
-        self.embed_calls += 1
-        self.embed_inputs.extend(texts)
+        with self._lock:
+            self.embed_calls += 1
+        self._maybe_fail()
+        with self._lock:
+            self.embed_inputs.extend(texts)
         vectors = np.vstack([self._vector(t) for t in texts]) if texts else np.zeros((0, self.dim))
         return EmbeddingReply(vectors=vectors, usage=Usage(prompt_tokens=sum(len(_tokens(t)) for t in texts)))
 
     def chat(self, messages, tools=None, response_format=None, model=None) -> ChatReply:
-        self.chat_calls += 1
-        self.chat_inputs.append(
-            {"messages": messages, "tools": tools, "response_format": response_format, "model": model}
-        )
+        with self._lock:
+            self.chat_calls += 1
+        self._maybe_fail()
         req = ChatRequest(messages, tools, response_format, model)
-        reply = self._coerce(self._pick(req), req)
+        with self._lock:
+            self.chat_inputs.append(
+                {"messages": messages, "tools": tools, "response_format": response_format, "model": model}
+            )
+            picked = self._pick(req)
+        reply = self._coerce(picked, req)
         reply.usage = Usage(
             prompt_tokens=len(_tokens(req.text)) + 1,
             completion_tokens=len(_tokens(reply.content or ""))
@@ -215,3 +237,53 @@ def _method_c_agent(req: ChatRequest) -> ChatReply:
 @default_handler("method_c_consolidation")
 def _method_c_consolidation(req: ChatRequest) -> dict:
     return {"merges": []}
+
+
+@default_handler("cluster_verification")
+def _cluster_verification(req: ChatRequest) -> dict:
+    """Method B: accept every cluster as one Problem (stable after one iteration)."""
+    return {"one_problem": True, "reason": "Fake: domyślnie jeden Problem."}
+
+
+@default_handler("problem_merge")
+def _problem_merge(req: ChatRequest) -> dict:
+    """Method B: reject every merge."""
+    return {"same_problem": False, "reason": "Fake: domyślnie różne Problemy."}
+
+
+@default_handler("symptom_summary")
+def _symptom_summary(req: ChatRequest) -> dict:
+    """Echo the Ticket text flattened to one lowercase line (keeps lexical grouping offline)."""
+    text = req.last_user.split("\n", 1)[-1]
+    return {"summary": " ".join(_tokens(text))}
+
+
+# --- Judge (#7) -------------------------------------------------------------
+
+def _judge_bullets(text: str) -> list[str]:
+    return [line[2:] for line in text.splitlines() if line.startswith("- ")]
+
+
+def _judge_stems(text: str) -> set[str]:
+    return {s for s in stems(text) if s not in STOPWORDS}
+
+
+@default_handler("judge_mixed")
+def _judge_mixed(req: ChatRequest) -> dict:
+    """Mixed when some sampled Ticket shares no word stem with any other sampled Ticket."""
+    sets = [_judge_stems(t) for t in _judge_bullets(req.last_user)]
+    lonely = [i for i, s in enumerate(sets) if not any(s & o for j, o in enumerate(sets) if j != i)]
+    if lonely:
+        return {"mixed": True, "reason": f"Zgłoszenie {lonely[0] + 1} opisuje inny objaw."}
+    return {"mixed": False, "reason": "Wszystkie zgłoszenia opisują ten sam objaw."}
+
+
+@default_handler("judge_split")
+def _judge_split(req: ChatRequest) -> dict:
+    """Same Problem when the two samples' stem sets overlap by Jaccard >= 0.5."""
+    first, _, second = req.last_user.partition("Problem 2:")
+    a = set().union(*[_judge_stems(t) for t in _judge_bullets(first)])
+    b = set().union(*[_judge_stems(t) for t in _judge_bullets(second)])
+    if len(a & b) / max(len(a | b), 1) >= 0.5:
+        return {"same_problem": True, "reason": "Oba Problemy opisują ten sam objaw."}
+    return {"same_problem": False, "reason": "Problemy opisują różne objawy."}

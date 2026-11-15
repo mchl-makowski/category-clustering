@@ -3,7 +3,7 @@
     problem-clustering run --method a --input export.xlsx [--config config.yaml] [--set key=value ...]
                            [--out-dir outputs] [--no-judge]
 
-`compare` is added by #7 as another subparser.
+    problem-clustering compare run1.xlsx run2.xlsx ... [--out-dir outputs]
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import load_config, load_tickets, run_method, write_outputs
+from . import compare, judge, load_config, load_tickets, run_method, write_outputs
 from .backend import make_backend
 
 
@@ -20,9 +20,14 @@ def _cmd_run(args: argparse.Namespace) -> int:
     tickets = load_tickets(args.input)
     backend = make_backend(config.backend)
     result = run_method(tickets, args.method, config, backend)
-    judge_result = None  # Judge wired in by #7 unless --no-judge
+    judge_result = None if args.no_judge else judge(result, config, backend)
     paths = write_outputs(result, judge_result, args.out_dir)
     print(f"{paths['xlsx']}\n{paths['txt']}")
+    return 0
+
+
+def _cmd_compare(args: argparse.Namespace) -> int:
+    print(compare(args.workbooks, args.out_dir))
     return 0
 
 
@@ -39,6 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--out-dir", default="outputs")
     run.add_argument("--no-judge", action="store_true", help="Skip the Judge")
     run.set_defaults(func=_cmd_run)
+
+    cmp = sub.add_parser("compare", help="Put the Metrics of several run workbooks side by side")
+    cmp.add_argument("workbooks", nargs="+", help="Run workbooks (.xlsx) written by `run`")
+    cmp.add_argument("--out-dir", default="outputs")
+    cmp.set_defaults(func=_cmd_compare)
     return parser
 
 
