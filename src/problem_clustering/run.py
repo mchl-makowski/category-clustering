@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from .backend import Backend, TrackedBackend
+from .backend.runtime import with_runtime
 from .config import Config
 from .methods import MethodContext, get_method
 from .naming import name_problems
@@ -32,11 +33,13 @@ def run_method(tickets: pd.DataFrame, method: str, config: Config, backend: Back
     method_fn = get_method(method)
     started_at = datetime.now()
     start = time.perf_counter()
-    tracked = TrackedBackend(backend)
     log: list[str] = []
 
     def say(line: str) -> None:
         log.append(f"[{datetime.now():%H:%M:%S}] {line}")
+
+    inner, cache_stats = with_runtime(backend, config, say)
+    tracked = TrackedBackend(inner)
 
     say(f"run method={method} tickets={len(tickets)}")
     say("config " + json.dumps(config.model_dump(), ensure_ascii=False))
@@ -73,6 +76,8 @@ def run_method(tickets: pd.DataFrame, method: str, config: Config, backend: Back
     usage = tracked.counters
     usage.runtime_s = time.perf_counter() - start
     say(f"problems={len(drafts)} (+X-0000)" if empty_rows else f"problems={len(drafts)}")
+    if cache_stats is not None:
+        say(cache_stats.summary())
     say("totals " + " ".join(f"{k}={v:.2f}" if isinstance(v, float) else f"{k}={v}" for k, v in usage.as_dict().items()))
 
     return RunResult(

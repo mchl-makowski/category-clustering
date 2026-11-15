@@ -7,6 +7,7 @@
     3. `DEFAULT_HANDLERS` keyed by the `response_format` json_schema name
        (or "tools" when tools are passed and no schema is set).
   No match raises LookupError so a missing script fails loudly.
+- `fake.fail_next(n, exc=None)`: next n calls raise (default TransientBackendError).
 - Records every input: `embed_inputs`, `chat_inputs`, counters `embed_calls`, `chat_calls`.
 
 A reply may be a `ChatReply`, a dict/list (serialised as JSON content), a str
@@ -23,13 +24,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import threading
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Callable
 
 import numpy as np
 
-from .base import ChatReply, EmbeddingReply, ToolCall, Usage
+from .base import ChatReply, EmbeddingReply, ToolCall, TransientBackendError, Usage
 
 _WORD = re.compile(r"\w+", re.UNICODE)
 
@@ -110,6 +112,8 @@ class FakeBackend:
         self.chat_calls = 0
         self._queue: list[Reply] = []
         self._rules: list[tuple[Match, Reply]] = []
+        self._failures: list[Exception] = []
+        self._lock = threading.RLock()  # calls may arrive from parallel_map threads
 
     # --- scripting -------------------------------------------------------
     def queue(self, *replies: Reply) -> FakeBackend:
@@ -121,6 +125,17 @@ class FakeBackend:
         self._rules.insert(0, (match, reply))
         return self
 
+    def fail_next(self, n: int, exc: Exception | None = None) -> FakeBackend:
+        """The next `n` calls (embed or chat) raise `exc` (default TransientBackendError). Still counted."""
+        self._failures.extend([exc or TransientBackendError("fake transient failure")] * n)
+        return self
+
+    def _maybe_fail(self) -> None:
+        with self._lock:
+            exc = self._failures.pop(0) if self._failures else None
+        if exc is not None:
+            raise exc
+
     def all_input_texts(self) -> list[str]:
         """Every string sent to the model: embed inputs, message contents, tool-call args."""
         out = list(self.embed_inputs)
@@ -130,18 +145,25 @@ class FakeBackend:
 
     # --- Backend protocol ------------------------------------------------
     def embed(self, texts: list[str]) -> EmbeddingReply:
-        self.embed_calls += 1
-        self.embed_inputs.extend(texts)
+        with self._lock:
+            self.embed_calls += 1
+        self._maybe_fail()
+        with self._lock:
+            self.embed_inputs.extend(texts)
         vectors = np.vstack([self._vector(t) for t in texts]) if texts else np.zeros((0, self.dim))
         return EmbeddingReply(vectors=vectors, usage=Usage(prompt_tokens=sum(len(_tokens(t)) for t in texts)))
 
     def chat(self, messages, tools=None, response_format=None, model=None) -> ChatReply:
-        self.chat_calls += 1
-        self.chat_inputs.append(
-            {"messages": messages, "tools": tools, "response_format": response_format, "model": model}
-        )
+        with self._lock:
+            self.chat_calls += 1
+        self._maybe_fail()
         req = ChatRequest(messages, tools, response_format, model)
-        reply = self._coerce(self._pick(req), req)
+        with self._lock:
+            self.chat_inputs.append(
+                {"messages": messages, "tools": tools, "response_format": response_format, "model": model}
+            )
+            picked = self._pick(req)
+        reply = self._coerce(picked, req)
         reply.usage = Usage(
             prompt_tokens=len(_tokens(req.text)) + 1,
             completion_tokens=len(_tokens(reply.content or ""))

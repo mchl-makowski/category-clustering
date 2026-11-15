@@ -49,6 +49,10 @@ class EmbeddingReply:
     usage: Usage = field(default_factory=Usage)  # completion_tokens always 0
 
 
+class TransientBackendError(RuntimeError):
+    """A call that may succeed if retried (rate limit, timeout, 5xx). See `retry.is_transient`."""
+
+
 class Backend(Protocol):
     def embed(self, texts: list[str]) -> EmbeddingReply:
         """One embeddings request for `texts` (callers batch; see `embed_texts`)."""

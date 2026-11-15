@@ -39,6 +39,17 @@ class MethodAConfig(Section):
     linkage: Literal["average", "complete", "single"] = "average"
 
 
+class RuntimeConfig(Section):
+    """Disk cache, bounded parallelism and retry/backoff around any backend (#4)."""
+
+    cache_dir: str | None = None  # None = no disk cache
+    max_concurrency: int = 8  # parallel independent model calls (parallel_map)
+    max_retries: int = 5  # retries after the first attempt on transient errors
+    backoff_initial_s: float = 1.0  # wait before retry 1, then x backoff_multiplier
+    backoff_multiplier: float = 2.0
+    backoff_max_s: float = 60.0
+
+
 class OutputConfig(Section):
     example_tickets: int = 5  # example Tickets per Problem in the catalogue
 
@@ -49,6 +60,7 @@ class Config(Section):
     naming: NamingConfig = NamingConfig()
     method_a: MethodAConfig = MethodAConfig()
     output: OutputConfig = OutputConfig()
+    runtime: RuntimeConfig = RuntimeConfig()
 
 
 def _parse_overrides(overrides: list[str] | dict[str, Any] | None) -> dict[str, Any]:
