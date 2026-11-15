@@ -68,6 +68,18 @@ class MethodBConfig(Section):
     linkage: Literal["average", "complete", "single"] = "average"
 
 
+class MethodCConfig(Section):
+    """Ticket-by-Ticket tool-calling agent with lookup and periodic consolidation."""
+
+    max_tool_calls: int = 6  # per Ticket; then the Ticket gets a new Problem (zgadywane)
+    search_k: int = 5  # default k for search_similar_tickets
+    search_max_k: int = 20  # hard cap on k the agent may request
+    consolidate_every: int = 250  # Tickets between consolidations (also runs at the end)
+    consolidate_threshold: float = 0.5  # cosine distance between Problem centroids to be merge candidates
+    consolidate_group_size: int = 15  # max Problems shown to the LLM per consolidation request
+    example_tickets: int = 5  # Ticket texts returned by get_problem
+
+
 class OutputConfig(Section):
     example_tickets: int = 5  # example Tickets per Problem in the catalogue
 
@@ -88,6 +100,7 @@ class Config(Section):
     naming: NamingConfig = NamingConfig()
     method_a: MethodAConfig = MethodAConfig()
     method_b: MethodBConfig = MethodBConfig()
+    method_c: MethodCConfig = MethodCConfig()
     output: OutputConfig = OutputConfig()
     symptom_summary: SymptomSummaryConfig = SymptomSummaryConfig()
     runtime: RuntimeConfig = RuntimeConfig()

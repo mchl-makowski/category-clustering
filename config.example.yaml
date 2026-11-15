@@ -35,6 +35,15 @@ method_b:
   max_iterations: 5
   linkage: average
 
+method_c:
+  max_tool_calls: 6          # per Ticket; then the Ticket gets a new Problem
+  search_k: 5                # default k for search_similar_tickets
+  search_max_k: 20           # hard cap on k
+  consolidate_every: 250     # Tickets between consolidations (also at the end)
+  consolidate_threshold: 0.5 # cosine distance between Problem centroids to be merge candidates
+  consolidate_group_size: 15 # max Problems per consolidation request
+  example_tickets: 5         # Ticket texts returned by get_problem
+
 output:
   example_tickets: 5
 
