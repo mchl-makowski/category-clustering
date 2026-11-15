@@ -214,6 +214,18 @@ def _naming(req: ChatRequest) -> dict:
     return {"name": "Problem: " + " ".join(top), "description": "Zgłoszenia dotyczące: " + ", ".join(top) + "."}
 
 
+@default_handler("cluster_verification")
+def _cluster_verification(req: ChatRequest) -> dict:
+    """Method B: accept every cluster as one Problem (stable after one iteration)."""
+    return {"one_problem": True, "reason": "Fake: domyślnie jeden Problem."}
+
+
+@default_handler("problem_merge")
+def _problem_merge(req: ChatRequest) -> dict:
+    """Method B: reject every merge."""
+    return {"same_problem": False, "reason": "Fake: domyślnie różne Problemy."}
+
+
 @default_handler("symptom_summary")
 def _symptom_summary(req: ChatRequest) -> dict:
     """Echo the Ticket text flattened to one lowercase line (keeps lexical grouping offline)."""

@@ -53,3 +53,48 @@ def naming_messages(level: GranularityLevel, texts: list[str]) -> list[dict]:
     )
     user = f"Zgłoszenia:\n{ticket_list(texts)}"
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+# --- Method B: cluster verification / merge check ---------------------------
+
+VERIFICATION_SCHEMA_NAME = "cluster_verification"
+VERIFICATION_SCHEMA = {
+    "type": "object",
+    "properties": {"one_problem": {"type": "boolean"}, "reason": {"type": "string"}},
+    "required": ["one_problem", "reason"],
+    "additionalProperties": False,
+}
+
+
+def verification_messages(level: GranularityLevel, texts: list[str]) -> list[dict]:
+    system = (
+        f"{problem_definition(level)}\n\n"
+        "Jesteś analitykiem Service Desk. Otrzymasz próbkę zgłoszeń z jednej grupy. "
+        "Oceń, czy wszystkie opisują jeden i ten sam Problem zgodnie z powyższą definicją. "
+        "Odpowiedz w JSON: {\"one_problem\": true|false, \"reason\": krótkie uzasadnienie po polsku}."
+    )
+    user = f"Zgłoszenia:\n{ticket_list(texts)}"
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+MERGE_SCHEMA_NAME = "problem_merge"
+MERGE_SCHEMA = {
+    "type": "object",
+    "properties": {"same_problem": {"type": "boolean"}, "reason": {"type": "string"}},
+    "required": ["same_problem", "reason"],
+    "additionalProperties": False,
+}
+
+MERGE_GROUP_A = "Grupa A:"
+MERGE_GROUP_B = "Grupa B:"
+
+
+def merge_messages(level: GranularityLevel, texts_a: list[str], texts_b: list[str]) -> list[dict]:
+    system = (
+        f"{problem_definition(level)}\n\n"
+        "Jesteś analitykiem Service Desk. Otrzymasz próbki zgłoszeń z dwóch grup (A i B). "
+        "Oceń, czy obie grupy opisują ten sam Problem zgodnie z powyższą definicją i powinny zostać połączone. "
+        "Odpowiedz w JSON: {\"same_problem\": true|false, \"reason\": krótkie uzasadnienie po polsku}."
+    )
+    user = f"{MERGE_GROUP_A}\n{ticket_list(texts_a)}\n\n{MERGE_GROUP_B}\n{ticket_list(texts_b)}"
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
