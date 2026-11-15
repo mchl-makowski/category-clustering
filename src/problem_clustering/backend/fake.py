@@ -202,3 +202,10 @@ def _cluster_verification(req: ChatRequest) -> dict:
 def _problem_merge(req: ChatRequest) -> dict:
     """Method B: reject every merge."""
     return {"same_problem": False, "reason": "Fake: domyślnie różne Problemy."}
+
+
+@default_handler("symptom_summary")
+def _symptom_summary(req: ChatRequest) -> dict:
+    """Echo the Ticket text flattened to one lowercase line (keeps lexical grouping offline)."""
+    text = req.last_user.split("\n", 1)[-1]
+    return {"summary": " ".join(_tokens(text))}
