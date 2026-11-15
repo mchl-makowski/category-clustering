@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..clustering import agglomerative, centroid_confidence, groups_from_labels, hdbscan
+from ..clustering import agglomerative, drafts_from_groups, groups_from_labels, hdbscan
 from ..result import ProblemDraft
 from . import MethodContext
 
@@ -16,10 +16,6 @@ def run(ctx: MethodContext) -> list[ProblemDraft]:
     else:
         labels = agglomerative(vectors, cfg.distance_threshold, cfg.linkage)
         params = f"threshold={cfg.distance_threshold}"
-    rows = list(ctx.texts.index)
-    drafts = []
-    for positions in groups_from_labels(labels):
-        conf = centroid_confidence(vectors[positions])
-        drafts.append(ProblemDraft(members=[rows[p] for p in positions], confidences=[float(c) for c in conf]))
+    drafts = drafts_from_groups(list(ctx.texts.index), vectors, groups_from_labels(labels))
     ctx.log(f"method_a: {cfg.algorithm} {params} -> {len(drafts)} Problems")
     return drafts

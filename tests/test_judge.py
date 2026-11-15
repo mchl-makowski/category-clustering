@@ -106,3 +106,20 @@ def test_scripted_verdicts_drive_purity_and_split_rate(result, config):
     assert jr.purity == 0.0
     assert jr.split_rate == 0.0
     assert set(jr.checks.loc[jr.checks["check"] == "mixed", "reason"]) == {"dwa objawy"}
+
+
+def test_judge_retries_transient_errors(result):
+    cfg = load_config(None, {"backend.kind": "fake", "runtime.backoff_initial_s": 0.0})
+    clean = judge(result, cfg, FakeBackend())
+    jr = judge(result, cfg, FakeBackend().fail_next(2))
+    assert jr.checks.equals(clean.checks)
+
+
+def test_second_identical_judge_is_served_from_the_disk_cache(result, tmp_path):
+    cfg = load_config(None, {"backend.kind": "fake", "runtime.cache_dir": str(tmp_path / "cache")})
+    first = judge(result, cfg, FakeBackend())
+    fake = FakeBackend()
+    second = judge(result, cfg, fake)
+    assert fake.chat_calls == 0
+    assert second.checks.equals(first.checks)
+    assert second.usage.llm_calls == first.usage.llm_calls  # usage counted outside the cache

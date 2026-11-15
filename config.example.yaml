@@ -1,5 +1,6 @@
 # Run configuration. Any value can be overridden from the CLI: --set method_a.distance_threshold=0.3
 # Secrets/endpoint come from env: FOUNDRY_API_KEY, FOUNDRY_ENDPOINT, FOUNDRY_API_VERSION.
+# FOUNDRY_EMBEDDING_DEPLOYMENT / FOUNDRY_CHAT_DEPLOYMENT / FOUNDRY_JUDGE_DEPLOYMENT, when set, override the deployment names below.
 
 granularity: medium          # coarse | medium | fine (Problem definition in every LLM prompt)
 
@@ -8,6 +9,7 @@ backend:
   embedding_deployment: text-embedding-3-large
   chat_deployment: gpt-4o
   embed_batch_size: 64
+  embed_max_chars: 8000      # each text cut to this before embedding (model limit 8191 tokens)
 
 naming:
   sample_size: 8             # Tickets shown to the LLM when naming a Problem

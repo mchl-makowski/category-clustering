@@ -34,3 +34,25 @@ def test_invalid_values_and_unknown_keys_are_rejected():
         load_config(None, ["granularity=extreme"])
     with pytest.raises(ValidationError):
         load_config(None, ["method_a.no_such_knob=1"])
+
+
+def test_deployment_names_from_env_win_over_yaml(tmp_path, monkeypatch):
+    path = tmp_path / "cfg.yaml"
+    path.write_text("backend:\n  embedding_deployment: yaml-emb\n  chat_deployment: yaml-chat\n"
+                    "judge:\n  deployment: yaml-judge\n", encoding="utf-8")
+    assert load_config(path).backend.chat_deployment == "yaml-chat"
+
+    monkeypatch.setenv("FOUNDRY_EMBEDDING_DEPLOYMENT", "env-emb")
+    monkeypatch.setenv("FOUNDRY_CHAT_DEPLOYMENT", "env-chat")
+    monkeypatch.setenv("FOUNDRY_JUDGE_DEPLOYMENT", "env-judge")
+    cfg = load_config(path)
+    assert (cfg.backend.embedding_deployment, cfg.backend.chat_deployment, cfg.judge.deployment) == (
+        "env-emb", "env-chat", "env-judge")
+
+
+def test_unset_deployment_env_keeps_yaml_and_cli_set_beats_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("FOUNDRY_CHAT_DEPLOYMENT", "env-chat")
+    cfg = load_config(None, ["backend.chat_deployment=cli-chat"])
+    assert cfg.backend.chat_deployment == "cli-chat"  # an explicit --set is the most specific
+    assert cfg.backend.embedding_deployment == "text-embedding-3-large"
+    assert cfg.judge.deployment == "gpt-4o"

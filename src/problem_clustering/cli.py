@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import compare, judge, load_config, load_tickets, run_method, write_outputs
+from . import compare, judge_safely, load_config, load_tickets, run_method, write_outputs
 from .backend import make_backend
 
 
@@ -20,9 +20,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
     tickets = load_tickets(args.input)
     backend = make_backend(config.backend)
     result = run_method(tickets, args.method, config, backend)
-    judge_result = None if args.no_judge else judge(result, config, backend)
+    judge_result = None if args.no_judge else judge_safely(result, config, backend)
     paths = write_outputs(result, judge_result, args.out_dir)
     print(f"{paths['xlsx']}\n{paths['txt']}")
+    if not args.no_judge and judge_result is None:
+        print(result.log[-1], file=sys.stderr)
+        return 1
     return 0
 
 

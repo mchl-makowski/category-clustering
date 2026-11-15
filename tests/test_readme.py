@@ -6,12 +6,13 @@ from pydantic import BaseModel
 
 from problem_clustering import Config
 from problem_clustering.backend.azure import FoundrySettings
+from problem_clustering.config import DeploymentSettings
 
 README = (Path(__file__).parents[1] / "README.md").read_text(encoding="utf-8")
 
 
 def test_readme_lists_every_foundry_env_var():
-    for field in FoundrySettings.model_fields:
+    for field in [*FoundrySettings.model_fields, *DeploymentSettings.model_fields]:
         assert f"FOUNDRY_{field.upper()}" in README
 
 

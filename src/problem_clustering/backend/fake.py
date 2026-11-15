@@ -12,7 +12,8 @@
 
 A reply may be a `ChatReply`, a dict/list (serialised as JSON content), a str
 (content), or a callable `(ChatRequest) -> any of those`. Use `tool_reply(...)`
-for tool-call replies.
+for tool-call replies, `content_filtered()` for a reply the Azure content filter
+blocks (raises ContentFilteredError, like the Azure backend).
 
 Extension: a ticket that adds a new LLM step registers a default reply with
 `@default_handler("<schema name>")` (in this file, append-only) so the full
@@ -31,7 +32,7 @@ from typing import Any, Callable
 
 import numpy as np
 
-from .base import ChatReply, EmbeddingReply, ToolCall, TransientBackendError, Usage
+from .base import ChatReply, ContentFilteredError, EmbeddingReply, ToolCall, TransientBackendError, Usage
 
 _WORD = re.compile(r"\w+", re.UNICODE)
 
@@ -84,6 +85,11 @@ def tool_reply(*calls: tuple[str, dict[str, Any]]) -> ChatReply:
                     for i, (n, a) in enumerate(calls)],
         finish_reason="tool_calls",
     )
+
+
+def content_filtered() -> ChatReply:
+    """A reply blocked by the Azure content filter; the Fake raises ContentFilteredError for it, as Azure does."""
+    return ChatReply(content=None, finish_reason="content_filter")
 
 
 def _message_text(m: dict[str, Any]) -> str:
@@ -164,6 +170,8 @@ class FakeBackend:
             )
             picked = self._pick(req)
         reply = self._coerce(picked, req)
+        if reply.finish_reason == "content_filter":
+            raise ContentFilteredError("fake content filter")
         reply.usage = Usage(
             prompt_tokens=len(_tokens(req.text)) + 1,
             completion_tokens=len(_tokens(reply.content or ""))

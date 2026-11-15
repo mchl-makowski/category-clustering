@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib
 import re
+import threading
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -29,11 +30,23 @@ class MethodContext:
     backend: Backend  # usage-tracked
     log: Callable[[str], None]
     _embeddings: np.ndarray | None = field(default=None, repr=False)
+    _embeddings_lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+
+    def embed(self, texts: list[str]) -> np.ndarray:
+        """Embed any texts (batched, parallel, cut to `backend.embed_max_chars`)."""
+        cfg = self.config
+        return embed_texts(self.backend, texts, cfg.backend.embed_batch_size, cfg.runtime.max_concurrency,
+                           cfg.backend.embed_max_chars)
 
     def embeddings(self) -> np.ndarray:
-        """Embeddings of `texts` (row order = `texts.index`), computed once per run."""
-        if self._embeddings is None:
-            self._embeddings = embed_texts(self.backend, list(self.texts), self.config.backend.embed_batch_size)
+        """Embeddings of `texts` (row order = `texts.index`), computed once per run (thread-safe)."""
+        with self._embeddings_lock:
+            if self._embeddings is None:
+                self._embeddings = self.embed(list(self.texts))
+            return self._embeddings
+
+    def computed_embeddings(self) -> np.ndarray | None:
+        """`embeddings()` if the Method asked for them, else None (never triggers a model call)."""
         return self._embeddings
 
 

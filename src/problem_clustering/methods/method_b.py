@@ -1,10 +1,11 @@
 """Method B: coarse clustering + LLM verification (split / merge until stable).
 
 1. agglomerative clusters at `method_b.coarse_threshold`;
-2. each iteration: the LLM checks a sample of every not-yet-verified multi-Ticket
-   cluster for being one Problem; a mixed cluster is re-clustered at a tighter
+2. each iteration: the LLM checks (in parallel) a sample of every not-yet-verified
+   multi-Ticket cluster for being one Problem; a mixed cluster is re-clustered at a tighter
    threshold (minus `split_step`, tightened further until it actually splits);
-3. then nearest-centroid neighbour pairs are LLM-checked for a merge;
+3. then nearest-centroid neighbour pairs are LLM-checked for a merge (sequential:
+   each merge changes which pairs are still open);
 4. stop when an iteration changes nothing, or after `max_iterations`.
 Naming is done by run_method.
 """
@@ -15,9 +16,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ..backend import json_schema_format
-from ..clustering import agglomerative, centroid_confidence, groups_from_labels
-from ..naming import sample_members
+from ..backend import ContentFilteredError, json_schema_format
+from ..clustering import (
+    agglomerative, centroids, drafts_from_groups, groups_from_labels, nearest_pairs, sample_members, unit_rows,
+)
+from ..concurrency import parallel_map
 from ..prompts import (
     MERGE_SCHEMA, MERGE_SCHEMA_NAME, VERIFICATION_SCHEMA, VERIFICATION_SCHEMA_NAME, merge_messages,
     verification_messages,
@@ -39,27 +42,38 @@ class _Cluster:
 def run(ctx: MethodContext) -> list[ProblemDraft]:
     cfg = ctx.config.method_b
     vectors = ctx.embeddings()
+    unit = unit_rows(vectors)
     texts = list(ctx.texts)
     clusters = _cluster(vectors, list(range(len(texts))), cfg.coarse_threshold, cfg.linkage)
-    ctx.log(f"method_b: coarse threshold={cfg.coarse_threshold} -> {len(clusters)} clusters")
+    ctx.log(f"method_b: coarse threshold={cfg.coarse_threshold} -> {len(clusters)} candidate Problems")
 
     verdicts: dict[frozenset[int], bool] = {}  # cluster -> is one Problem (never re-asked)
     verify_fmt = json_schema_format(VERIFICATION_SCHEMA_NAME, VERIFICATION_SCHEMA)
 
-    def is_one_problem(c: _Cluster) -> bool:
-        if c.key not in verdicts:
-            sample = [texts[p] for p in sample_members(c.positions, cfg.sample_size)]
+    def ask_one_problem(c: _Cluster) -> bool:
+        sample = [texts[p] for p in sample_members(c.positions, cfg.sample_size)]
+        try:
             reply = ctx.backend.chat(verification_messages(ctx.config.granularity, sample), response_format=verify_fmt)
-            verdicts[c.key] = bool(reply.json()["one_problem"])
-        return verdicts[c.key]
+        except ContentFilteredError:
+            ctx.log(f"method_b: verification blocked by content filter, candidate kept as one Problem "
+                    f"({len(c.positions)} Tickets)")
+            return True
+        return bool(reply.json()["one_problem"])
+
+    def verify(current: list[_Cluster]) -> int:
+        """Ask, in parallel, about every multi-Ticket cluster not verified yet; returns how many were asked."""
+        todo = list({c.key: c for c in current if len(c.positions) >= 2 and c.key not in verdicts}.values())
+        for c, verdict in zip(todo, parallel_map(ask_one_problem, todo, ctx.config.runtime.max_concurrency)):
+            verdicts[c.key] = verdict
+        return len(todo)
 
     rejected: set[frozenset[frozenset[int]]] = set()  # merge pairs the LLM said no to
     merge_fmt = json_schema_format(MERGE_SCHEMA_NAME, MERGE_SCHEMA)
-    half = max(1, cfg.sample_size // 2)
+    per_side_sample = max(1, cfg.sample_size // 2)  # merge check shows two groups
 
     def merge_step(current: list[_Cluster]) -> tuple[list[_Cluster], int]:
         merged_into: dict[int, _Cluster] = {}
-        for i, j in _neighbour_pairs(vectors, current, cfg.merge_neighbours):
+        for i, j in _neighbour_pairs(unit, current, cfg.merge_neighbours):
             if i in merged_into or j in merged_into:
                 continue
             a, b = current[i], current[j]
@@ -68,10 +82,15 @@ def run(ctx: MethodContext) -> list[ProblemDraft]:
                 continue  # never re-ask a rejected pair, never recreate a cluster judged mixed
             msgs = merge_messages(
                 ctx.config.granularity,
-                [texts[p] for p in sample_members(a.positions, half)],
-                [texts[p] for p in sample_members(b.positions, half)],
+                [texts[p] for p in sample_members(a.positions, per_side_sample)],
+                [texts[p] for p in sample_members(b.positions, per_side_sample)],
             )
-            if not bool(ctx.backend.chat(msgs, response_format=merge_fmt).json()["same_problem"]):
+            try:
+                same = bool(ctx.backend.chat(msgs, response_format=merge_fmt).json()["same_problem"])
+            except ContentFilteredError:
+                ctx.log("method_b: merge check blocked by content filter, not merged")
+                same = False
+            if not same:
                 rejected.add(pair)
                 continue
             joined = _Cluster(sorted(a.positions + b.positions), max(a.threshold, b.threshold))
@@ -87,13 +106,10 @@ def run(ctx: MethodContext) -> list[ProblemDraft]:
 
     for iteration in range(1, cfg.max_iterations + 1):
         next_clusters: list[_Cluster] = []
-        checked = mixed = splits = 0
+        verified = verify(clusters)
+        mixed = splits = 0
         for c in clusters:
-            if len(c.positions) < 2:
-                next_clusters.append(c)
-                continue
-            checked += c.key not in verdicts
-            if is_one_problem(c):
+            if len(c.positions) < 2 or verdicts[c.key]:
                 next_clusters.append(c)
                 continue
             mixed += 1
@@ -101,20 +117,15 @@ def run(ctx: MethodContext) -> list[ProblemDraft]:
             splits += len(parts) > 1
             next_clusters.extend(parts)
         clusters, merges = merge_step(next_clusters)
-        ctx.log(f"method_b iteration {iteration}: verified={checked} mixed={mixed} splits={splits} "
-                f"merges={merges} clusters={len(clusters)}")
+        ctx.log(f"method_b iteration {iteration}: verified={verified} mixed={mixed} splits={splits} "
+                f"merges={merges} Problems={len(clusters)}")
         if not splits and not merges:
             ctx.log(f"method_b: stable after {iteration} iteration(s)")
             break
     else:
         ctx.log(f"method_b: stopped at max_iterations={cfg.max_iterations}")
 
-    rows = list(ctx.texts.index)
-    drafts = []
-    for c in clusters:
-        conf = centroid_confidence(vectors[c.positions])
-        drafts.append(ProblemDraft(members=[rows[p] for p in c.positions], confidences=[float(x) for x in conf]))
-    return drafts
+    return drafts_from_groups(list(ctx.texts.index), vectors, [c.positions for c in clusters])
 
 
 def _cluster(vectors: np.ndarray, positions: list[int], threshold: float, linkage: str) -> list[_Cluster]:
@@ -122,20 +133,11 @@ def _cluster(vectors: np.ndarray, positions: list[int], threshold: float, linkag
     return [_Cluster([positions[i] for i in group], threshold) for group in groups_from_labels(labels)]
 
 
-def _neighbour_pairs(vectors: np.ndarray, clusters: list[_Cluster], k: int) -> list[tuple[int, int]]:
+def _neighbour_pairs(unit: np.ndarray, clusters: list[_Cluster], k: int) -> list[tuple[int, int]]:
     """Deduplicated (i, j) pairs of each cluster with its k nearest clusters by centroid, closest first."""
-    if len(clusters) < 2 or k < 1:
+    if len(clusters) < 2:
         return []
-    unit = vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
-    cents = np.vstack([unit[c.positions].mean(axis=0) for c in clusters])
-    cents /= np.linalg.norm(cents, axis=1, keepdims=True)
-    sim = cents @ cents.T
-    np.fill_diagonal(sim, -np.inf)
-    pairs: dict[tuple[int, int], float] = {}
-    for i in range(len(clusters)):
-        for j in np.argsort(-sim[i])[:k]:
-            pairs[(min(i, int(j)), max(i, int(j)))] = float(sim[i, j])
-    return sorted(pairs, key=lambda p: (-pairs[p], p))
+    return nearest_pairs(centroids([unit[c.positions] for c in clusters]), k)
 
 
 def _split(vectors: np.ndarray, c: _Cluster, step: float, linkage: str) -> list[_Cluster]:

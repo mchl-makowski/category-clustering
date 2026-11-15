@@ -36,30 +36,30 @@ def run_method(tickets: pd.DataFrame, method: str, config: Config, backend: Back
     start = time.perf_counter()
     log: list[str] = []
 
-    def say(line: str) -> None:
+    def log_line(line: str) -> None:
         log.append(f"[{datetime.now():%H:%M:%S}] {line}")
 
-    inner, cache_stats = with_runtime(backend, config, say)
+    inner, cache_stats = with_runtime(backend, config, log_line)
     tracked = TrackedBackend(inner)
 
-    say(f"run method={method} tickets={len(tickets)}")
-    say("config " + json.dumps(config.model_dump(), ensure_ascii=False))
+    log_line(f"run method={method} tickets={len(tickets)}")
+    log_line("config " + json.dumps(config.model_dump(), ensure_ascii=False))
 
     all_texts = model_texts(tickets)
     texts = all_texts.dropna()
     empty_rows = [i for i in tickets.index if i not in texts.index]
-    say(f"non-empty={len(texts)} empty(X-0000)={len(empty_rows)}")
+    log_line(f"non-empty={len(texts)} empty(X-0000)={len(empty_rows)}")
 
     grouping_texts = texts
     if config.symptom_summary.enabled and len(texts):
-        grouping_texts = symptom_summaries(texts, config, tracked, say)  # grouped instead of raw text
+        grouping_texts = symptom_summaries(texts, config, tracked, log_line)  # grouped instead of raw text
 
-    ctx = MethodContext(tickets=tickets, texts=grouping_texts, config=config, backend=tracked, log=say)
+    ctx = MethodContext(tickets=tickets, texts=grouping_texts, config=config, backend=tracked, log=log_line)
     drafts = method_fn(ctx) if len(texts) else []
     _check_partition(drafts, texts.index)
     drafts.sort(key=lambda d: (-len(d.members), min(d.members)))
 
-    name_problems(drafts, texts, config, tracked)
+    name_problems(drafts, texts, config, tracked, log_line)
 
     assignments = pd.DataFrame(index=tickets.index, columns=ASSIGNMENT_COLUMNS, dtype=object)
     catalogue_rows = []
@@ -78,12 +78,13 @@ def run_method(tickets: pd.DataFrame, method: str, config: Config, backend: Back
         )
     assignments["confidence"] = assignments["confidence"].astype(float)
 
+    embeddings = ctx.computed_embeddings()
     usage = tracked.counters
     usage.runtime_s = time.perf_counter() - start
-    say(f"problems={len(drafts)} (+X-0000)" if empty_rows else f"problems={len(drafts)}")
+    log_line(f"problems={len(drafts)} (+X-0000)" if empty_rows else f"problems={len(drafts)}")
     if cache_stats is not None:
-        say(cache_stats.summary())
-    say("totals " + " ".join(f"{k}={v:.2f}" if isinstance(v, float) else f"{k}={v}" for k, v in usage.as_dict().items()))
+        log_line(cache_stats.summary())
+    log_line("totals " + " ".join(f"{k}={v:.2f}" if isinstance(v, float) else f"{k}={v}" for k, v in usage.as_dict().items()))
 
     return RunResult(
         method=method,
@@ -94,8 +95,8 @@ def run_method(tickets: pd.DataFrame, method: str, config: Config, backend: Back
         usage=usage,
         log=log,
         started_at=started_at,
-        embeddings=ctx._embeddings,
-        embedding_rows=list(texts.index) if ctx._embeddings is not None else None,
+        embeddings=embeddings,
+        embedding_rows=list(texts.index) if embeddings is not None else None,
     )
 
 

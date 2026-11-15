@@ -1,9 +1,9 @@
-"""Prompt text shared by every LLM step. All prompts are Polish.
+"""All LLM prompt text and JSON reply schemas, one section per LLM step. All prompts are Polish.
 
-Every LLM step (naming, B verification/merge, C agent/consolidation, Judge)
+Every LLM step (Symptom Summary, naming, B verification/merge, C agent/consolidation, Judge)
 must start its system message with `problem_definition(level)` so one
-Granularity Level controls how narrow a Problem is. Later tickets add their
-own prompt builders below.
+Granularity Level controls how narrow a Problem is. A new LLM step adds its
+section here, not in its own module.
 """
 
 from .config import GranularityLevel
@@ -31,6 +31,29 @@ def problem_definition(level: GranularityLevel) -> str:
 def ticket_list(texts: list[str]) -> str:
     """Tickets as '- ' bullet lines, newlines flattened."""
     return "\n".join("- " + " ".join(t.split()) for t in texts)
+
+
+# --- Symptom Summary ----------------------------------------------------------
+
+SUMMARY_SCHEMA_NAME = "symptom_summary"
+SUMMARY_SCHEMA = {
+    "type": "object",
+    "properties": {"summary": {"type": "string"}},
+    "required": ["summary"],
+    "additionalProperties": False,
+}
+TICKET_HEADER = "Zgłoszenie:\n"
+
+
+def summary_messages(level: GranularityLevel, text: str) -> list[dict]:
+    system = (
+        f"{problem_definition(level)}\n\n"
+        "Jesteś analitykiem Service Desk. Przepisz zgłoszenie na jedną znormalizowaną linię po polsku: "
+        "obserwowalny objaw + kontekst (system, komponent, wersja, lokalizacja), bez danych osobowych, "
+        "powitań i zbędnych szczegółów. Szczegółowość kontekstu dopasuj do poziomu szczegółowości powyżej. "
+        "Odpowiedz w JSON: {\"summary\": ...}."
+    )
+    return [{"role": "system", "content": system}, {"role": "user", "content": TICKET_HEADER + text}]
 
 
 # --- naming -----------------------------------------------------------------
@@ -77,13 +100,16 @@ def verification_messages(level: GranularityLevel, texts: list[str]) -> list[dic
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-MERGE_SCHEMA_NAME = "problem_merge"
-MERGE_SCHEMA = {
+# "Are these two samples the same Problem?" reply; shared by the B merge check and the Judge Split check.
+SAME_PROBLEM_SCHEMA = {
     "type": "object",
     "properties": {"same_problem": {"type": "boolean"}, "reason": {"type": "string"}},
     "required": ["same_problem", "reason"],
     "additionalProperties": False,
 }
+
+MERGE_SCHEMA_NAME = "problem_merge"
+MERGE_SCHEMA = SAME_PROBLEM_SCHEMA
 
 MERGE_GROUP_A = "Grupa A:"
 MERGE_GROUP_B = "Grupa B:"
@@ -218,4 +244,38 @@ def consolidation_messages(level: GranularityLevel, problems: list[dict]) -> lis
         for p in problems
     ]
     user = "Problemy:\n\n" + "\n\n".join(blocks)
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+# --- Judge: Mixed / Split checks ----------------------------------------------
+
+MIXED_SCHEMA_NAME = "judge_mixed"
+MIXED_SCHEMA = {
+    "type": "object",
+    "properties": {"mixed": {"type": "boolean"}, "reason": {"type": "string"}},
+    "required": ["mixed", "reason"],
+    "additionalProperties": False,
+}
+SPLIT_SCHEMA_NAME = "judge_split"
+SPLIT_SCHEMA = SAME_PROBLEM_SCHEMA
+
+
+def mixed_messages(level: GranularityLevel, texts: list[str]) -> list[dict]:
+    system = (
+        f"{problem_definition(level)}\n\n"
+        "Jesteś sędzią oceniającym grupowanie zgłoszeń Service Desk. Otrzymasz próbkę zgłoszeń "
+        "przypisanych do jednego Problemu. Oceń, czy wszystkie opisują ten sam Problem, czy grupa "
+        "miesza różne Problemy. Odpowiedz w JSON: {\"mixed\": true|false, \"reason\": \"krótkie uzasadnienie po polsku\"}."
+    )
+    return [{"role": "system", "content": system}, {"role": "user", "content": f"Zgłoszenia:\n{ticket_list(texts)}"}]
+
+
+def split_messages(level: GranularityLevel, texts_a: list[str], texts_b: list[str]) -> list[dict]:
+    system = (
+        f"{problem_definition(level)}\n\n"
+        "Jesteś sędzią oceniającym grupowanie zgłoszeń Service Desk. Otrzymasz próbki zgłoszeń z dwóch "
+        "Problemów. Oceń, czy to w rzeczywistości ten sam Problem rozbity na dwie grupy. Odpowiedz w JSON: "
+        "{\"same_problem\": true|false, \"reason\": \"krótkie uzasadnienie po polsku\"}."
+    )
+    user = f"Problem 1:\n{ticket_list(texts_a)}\n\nProblem 2:\n{ticket_list(texts_b)}"
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]

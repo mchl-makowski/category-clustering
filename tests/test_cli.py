@@ -15,6 +15,26 @@ def test_run_method_a_on_fixture_with_fake_backend(tmp_path, fixture_path):
     assert re.fullmatch(r"\d{6}_\d{4}_a\.xlsx", names[1])
 
 
+def test_judge_failure_still_writes_the_run_and_logs_the_error(tmp_path, fixture_path, monkeypatch, capsys):
+    from problem_clustering.backend.fake import DEFAULT_HANDLERS
+
+    def broken(req):
+        raise RuntimeError("judge deployment not found")
+
+    monkeypatch.setitem(DEFAULT_HANDLERS, "judge_mixed", broken)
+    code = main(["run", "--method", "a", "--input", str(fixture_path), "--out-dir", str(tmp_path),
+                 "--set", "backend.kind=fake", "--set", "method_a.distance_threshold=0.6"])
+    assert code == 1
+    xlsx = next(tmp_path.glob("*.xlsx"))
+    import pandas as pd
+
+    assert len(pd.read_excel(xlsx, sheet_name="Tickets")) == 20
+    assert _judge_rows(xlsx) == 0
+    log = next(tmp_path.glob("*.txt")).read_text(encoding="utf-8")
+    assert "judge deployment not found" in log
+    assert "judge deployment not found" in capsys.readouterr().err
+
+
 def _judge_rows(xlsx):
     import pandas as pd
 
