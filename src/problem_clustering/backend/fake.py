@@ -190,3 +190,28 @@ def _naming(req: ChatRequest) -> dict:
     counts = Counter(w for t in tickets for w in set(_tokens(t)) if len(w) >= 4 and w not in STOPWORDS)
     top = [w for w, _ in counts.most_common(3)] or ["inne"]
     return {"name": "Problem: " + " ".join(top), "description": "Zgłoszenia dotyczące: " + ", ".join(top) + "."}
+
+
+FAKE_AGENT_ASSIGN_SIMILARITY = 0.5
+
+
+@default_handler("tools")
+def _method_c_agent(req: ChatRequest) -> ChatReply:
+    """Method C agent: search once, then assign to the top hit if similar enough, else create."""
+    first_user = next((m for m in req.messages if m.get("role") == "user"), {})
+    ticket = _message_text(first_user).split("\n", 1)[-1].strip()
+    tool_results = [m for m in req.messages if m.get("role") == "tool"]
+    if not tool_results:
+        return tool_reply(("search_similar_tickets", {"query": ticket, "k": 5}))
+    results = json.loads(tool_results[-1]["content"]).get("results") or []
+    if results and results[0]["similarity"] >= FAKE_AGENT_ASSIGN_SIMILARITY:
+        return tool_reply(("assign_to_problem", {"problem_id": results[0]["problem_id"],
+                                                 "confidence_level": "wysokie"}))
+    title = ticket.splitlines()[0] if ticket else "inne"
+    return tool_reply(("create_problem", {"name": title, "description": f"Zgłoszenia: {title}.",
+                                          "confidence_level": "średnie"}))
+
+
+@default_handler("method_c_consolidation")
+def _method_c_consolidation(req: ChatRequest) -> dict:
+    return {"merges": []}
