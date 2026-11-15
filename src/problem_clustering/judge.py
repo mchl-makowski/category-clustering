@@ -8,14 +8,16 @@
 
 The Judge always calls `judge.deployment` (passed as `model=`), never the run's chat
 model, and counts its own usage separately from the Method's. X-0000 is never judged.
-Relies only on RunResult fields, so it works for every Method.
+Checks run in parallel (`runtime.max_concurrency`) through the same retry + disk cache
+stack as `run_method`. A check blocked by the content filter gets verdict "error" and is
+left out of purity / split rate. Relies only on RunResult fields, so it works for every Method.
 """
 
 from __future__ import annotations
 
 import time
-from datetime import datetime
 from dataclasses import dataclass, field
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -24,29 +26,16 @@ from .backend import Backend, ContentFilteredError, TrackedBackend, UsageCounter
 from .backend.runtime import with_runtime
 from .concurrency import parallel_map
 from .config import Config
-from .naming import sample_members
-from .prompts import problem_definition, ticket_list
+from .clustering import centroids, nearest_pairs, sample_members, unit_rows
+from .prompts import (
+    MIXED_SCHEMA, MIXED_SCHEMA_NAME, SPLIT_SCHEMA, SPLIT_SCHEMA_NAME, mixed_messages, split_messages,
+)
 from .result import EMPTY_PROBLEM_ID, RunResult
 from .text import model_texts
 
 JUDGE_COLUMNS = ["check", "problem_id", "other_problem_id", "verdict", "reason"]
 ERROR_VERDICT = "error"  # check got no verdict (e.g. content filter); excluded from purity / split rate
 FILTERED_REASON = "content filter: the Judge prompt or reply was blocked"
-
-MIXED_SCHEMA_NAME = "judge_mixed"
-MIXED_SCHEMA = {
-    "type": "object",
-    "properties": {"mixed": {"type": "boolean"}, "reason": {"type": "string"}},
-    "required": ["mixed", "reason"],
-    "additionalProperties": False,
-}
-SPLIT_SCHEMA_NAME = "judge_split"
-SPLIT_SCHEMA = {
-    "type": "object",
-    "properties": {"same_problem": {"type": "boolean"}, "reason": {"type": "string"}},
-    "required": ["same_problem", "reason"],
-    "additionalProperties": False,
-}
 
 
 @dataclass
@@ -75,27 +64,6 @@ class JudgeResult:
         s = self.split_checks
         s = s[s["verdict"] != ERROR_VERDICT]
         return float((s["verdict"] == "split").mean()) if len(s) else None
-
-
-def mixed_messages(level, texts: list[str]) -> list[dict]:
-    system = (
-        f"{problem_definition(level)}\n\n"
-        "Jesteś sędzią oceniającym grupowanie zgłoszeń Service Desk. Otrzymasz próbkę zgłoszeń "
-        "przypisanych do jednego Problemu. Oceń, czy wszystkie opisują ten sam Problem, czy grupa "
-        "miesza różne Problemy. Odpowiedz w JSON: {\"mixed\": true|false, \"reason\": \"krótkie uzasadnienie po polsku\"}."
-    )
-    return [{"role": "system", "content": system}, {"role": "user", "content": f"Zgłoszenia:\n{ticket_list(texts)}"}]
-
-
-def split_messages(level, texts_a: list[str], texts_b: list[str]) -> list[dict]:
-    system = (
-        f"{problem_definition(level)}\n\n"
-        "Jesteś sędzią oceniającym grupowanie zgłoszeń Service Desk. Otrzymasz próbki zgłoszeń z dwóch "
-        "Problemów. Oceń, czy to w rzeczywistości ten sam Problem rozbity na dwie grupy. Odpowiedz w JSON: "
-        "{\"same_problem\": true|false, \"reason\": \"krótkie uzasadnienie po polsku\"}."
-    )
-    user = f"Problem 1:\n{ticket_list(texts_a)}\n\nProblem 2:\n{ticket_list(texts_b)}"
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
 def judge(run_result: RunResult, config: Config, backend: Backend) -> JudgeResult:
@@ -165,19 +133,8 @@ def _split_pairs(run_result, order, members, texts, k, config, backend) -> list[
     if len(order) < 2 or k < 1:
         return []
     vectors = _ticket_vectors(run_result, [r for pid in order for r in members[pid]], texts, config, backend)
-    cents = np.vstack([np.mean([vectors[r] for r in members[pid]], axis=0) for pid in order])
-    cents = cents / np.clip(np.linalg.norm(cents, axis=1, keepdims=True), 1e-12, None)
-    sim = cents @ cents.T
-    np.fill_diagonal(sim, -np.inf)
-    pairs: list[tuple[str, str]] = []
-    seen: set[frozenset] = set()
-    for i, pid in enumerate(order):
-        for j in np.argsort(-sim[i], kind="stable")[: min(k, len(order) - 1)]:
-            key = frozenset((pid, order[j]))
-            if key not in seen:
-                seen.add(key)
-                pairs.append((pid, order[j]))
-    return pairs
+    cents = centroids([np.vstack([vectors[r] for r in members[pid]]) for pid in order])
+    return [(order[i], order[j]) for i, j in nearest_pairs(cents, k)]
 
 
 def _ticket_vectors(run_result, rows, texts, config, backend) -> dict:
@@ -190,4 +147,5 @@ def _ticket_vectors(run_result, rows, texts, config, backend) -> dict:
         new = embed_texts(backend, [texts[r] for r in missing], config.backend.embed_batch_size,
                           config.runtime.max_concurrency, config.backend.embed_max_chars)
         vectors.update(zip(missing, new))
-    return {r: np.asarray(v, dtype=float) / max(np.linalg.norm(v), 1e-12) for r, v in vectors.items()}
+    keys = list(vectors)
+    return dict(zip(keys, unit_rows(np.vstack([vectors[r] for r in keys])))) if keys else {}

@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from ..backend import ContentFilteredError, ToolCall, json_schema_format
-from ..clustering import agglomerative, groups_from_labels
+from ..clustering import agglomerative, centroids, groups_from_labels, unit_rows
 from ..prompts import (
     AGENT_NUDGE, CONSOLIDATION_SCHEMA, CONSOLIDATION_SCHEMA_NAME, agent_messages, agent_tools,
     consolidation_messages,
@@ -61,13 +61,13 @@ class _Agent:
         self.cfg = ctx.config.method_c
         self.texts = ctx.texts
         vectors = ctx.embeddings()
-        self.unit = vectors / np.maximum(np.linalg.norm(vectors, axis=1, keepdims=True), 1e-12)
+        self.unit = unit_rows(vectors)
         self.pos = {row: i for i, row in enumerate(ctx.texts.index)}
         self.problems: dict[str, _Problem] = {}
         self.row_problem: dict[int, str] = {}
         self.classified: list[int] = []
         self._next = 1
-        self._checked: set[tuple] = set()
+        self._consolidated_signatures: set[tuple] = set()
         self.tools = agent_tools(list(CONFIDENCE_LEVELS), self.cfg.search_max_k)
         self.stats = {"assigned": 0, "created": 0, "fallback": 0, "tool_errors": 0, "merged": 0}
 
@@ -102,8 +102,7 @@ class _Agent:
         k = max(1, min(k, self.cfg.search_max_k))
         if not self.classified:
             return {"results": [], "note": "Brak sklasyfikowanych zgłoszeń; katalog jest pusty."}
-        q = self.ctx.embed([query])[0]
-        q = q / max(np.linalg.norm(q), 1e-12)
+        q = unit_rows(self.ctx.embed([query]))[0]
         idx = [self.pos[r] for r in self.classified]
         sims = self.unit[idx] @ q
         order = np.argsort(-sims, kind="stable")[:k]
@@ -216,8 +215,8 @@ class _Agent:
         live = list(self.problems.values())
         merges_before = self.stats["merged"]
         if len(live) >= 2:
-            centroids = np.vstack([self.unit[[self.pos[r] for r in p.members]].mean(axis=0) for p in live])
-            labels = agglomerative(centroids, self.cfg.consolidate_threshold, "average")
+            cents = centroids([self.unit[[self.pos[r] for r in p.members]] for p in live])
+            labels = agglomerative(cents, self.cfg.consolidate_threshold, "average")
             size = max(2, self.cfg.consolidate_group_size)
             for positions in groups_from_labels(labels):
                 group = [live[i] for i in positions]
@@ -230,9 +229,9 @@ class _Agent:
 
     def _consolidate_chunk(self, chunk: list[_Problem]) -> None:
         signature = tuple(sorted((p.pid, len(p.members)) for p in chunk))
-        if signature in self._checked:
+        if signature in self._consolidated_signatures:
             return
-        self._checked.add(signature)
+        self._consolidated_signatures.add(signature)
         payload = [{"problem_id": p.pid, "name": self._display_name(p), "description": p.description or "",
                     "ticket_count": len(p.members),
                     "examples": [self.texts[r] for r in p.members[: self.cfg.example_tickets]]} for p in chunk]

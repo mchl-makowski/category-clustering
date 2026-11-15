@@ -7,18 +7,11 @@ from typing import Callable
 import pandas as pd
 
 from .backend import Backend, ContentFilteredError, json_schema_format
+from .clustering import sample_members
 from .concurrency import parallel_map
 from .config import Config
 from .prompts import NAMING_SCHEMA, NAMING_SCHEMA_NAME, naming_messages
 from .result import ProblemDraft
-
-
-def sample_members(members: list[int], k: int) -> list[int]:
-    """Deterministic, evenly spread sample of up to k members."""
-    if len(members) <= k:
-        return list(members)
-    step = len(members) / k
-    return [members[int(i * step)] for i in range(k)]
 
 
 FALLBACK_NAME_CHARS = 100

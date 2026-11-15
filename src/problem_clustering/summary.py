@@ -14,33 +14,13 @@ import pandas as pd
 
 from .backend import Backend, ContentFilteredError, json_schema_format
 from .concurrency import parallel_map
-from .config import Config, GranularityLevel
-from .prompts import problem_definition
-
-SUMMARY_SCHEMA_NAME = "symptom_summary"
-SUMMARY_SCHEMA = {
-    "type": "object",
-    "properties": {"summary": {"type": "string"}},
-    "required": ["summary"],
-    "additionalProperties": False,
-}
-TICKET_HEADER = "Zgłoszenie:\n"
-
-
-def summary_messages(level: GranularityLevel, text: str) -> list[dict]:
-    system = (
-        f"{problem_definition(level)}\n\n"
-        "Jesteś analitykiem Service Desk. Przepisz zgłoszenie na jedną znormalizowaną linię po polsku: "
-        "obserwowalny objaw + kontekst (system, komponent, wersja, lokalizacja), bez danych osobowych, "
-        "powitań i zbędnych szczegółów. Szczegółowość kontekstu dopasuj do poziomu szczegółowości powyżej. "
-        "Odpowiedz w JSON: {\"summary\": ...}."
-    )
-    return [{"role": "system", "content": system}, {"role": "user", "content": TICKET_HEADER + text}]
+from .config import Config
+from .prompts import SUMMARY_SCHEMA, SUMMARY_SCHEMA_NAME, summary_messages
 
 
 def symptom_summaries(texts: pd.Series, config: Config, backend: Backend,
                       log: Callable[[str], None]) -> pd.Series:
-    """One LLM call per Ticket; returns a Series aligned with `texts` holding single-line summaries."""
+    """One LLM call per Ticket (in parallel); returns a Series aligned with `texts` holding single-line summaries."""
     fmt = json_schema_format(SUMMARY_SCHEMA_NAME, SUMMARY_SCHEMA)
 
     def summarise(text: str) -> str | None:
