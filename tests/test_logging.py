@@ -39,13 +39,14 @@ def test_txt_log_records_debug_with_level_per_line_and_no_bar_frames(tickets, tm
     assert not BAR_NOISE.search(txt)
 
 
-def test_txt_log_has_progress_lines_and_final_count_per_loop(tickets):
+def test_txt_log_has_final_count_per_loop_but_no_progress_lines(tickets):
+    setup_logging(cfg(**{"logging.progress": "off"}))  # ~10% lines go to the console only
     result = run_method(tickets, "c", cfg(**{"method_c.consolidate_every": 5}), FakeBackend())
     log = "\n".join(result.log)
     n = len(tickets) - 2  # two empty Tickets (X-0000)
-    assert re.search(rf"INFO method_c Tickets: \d+/{n} problems=\d+$", log, re.M)  # ~10% line with catalogue size
+    assert not re.search(rf"INFO method_c Tickets: \d+/{n} problems=\d+$", log, re.M)  # progress noise
     assert re.search(rf"INFO method_c Tickets: {n}/{n} problems=\d+ done$", log, re.M)
-    assert re.search(r"INFO embeddings \(\d+ texts, batches\): \d+/\d+ done$", log, re.M)
+    assert re.search(rf"INFO embeddings: {n}/{n} done$", log, re.M)  # counted in Tickets, not batches
     a = "\n".join(run_method(tickets, "a", cfg(), FakeBackend()).log)  # C names its own Problems; A doesn't
     assert re.search(r"INFO naming Problems: (\d+)/\1 done$", a, re.M)
 
@@ -79,8 +80,20 @@ def test_judge_safely_failure_is_a_warning_in_the_run_log(tickets, monkeypatch):
 
     monkeypatch.setitem(DEFAULT_HANDLERS, "judge_mixed", broken)
     result = run_method(tickets, "a", cfg(), FakeBackend())
+    before = len(result.log)
     assert judge_safely(result, cfg(), FakeBackend()) is None
-    assert re.search(r"WARNING judge failed, run written without Judge: RuntimeError: boom", result.log[-1])
+    assert re.search(r"ERROR judge failed, run written without Judge: RuntimeError: boom", result.log[-1])
+    assert not any("judge Mixed checks:" in line and "done" in line for line in result.log[before:])
+
+
+def test_cli_judge_failure_shows_at_error_level(fixture_path, tmp_path, capsys, monkeypatch):
+    from problem_clustering.backend.fake import DEFAULT_HANDLERS
+
+    monkeypatch.setitem(DEFAULT_HANDLERS, "judge_mixed", lambda req: (_ for _ in ()).throw(RuntimeError("boom")))
+    flags = ["--set", "logging.level=ERROR", "--no-progress"]
+    assert main(["run", "--method", "a", "--input", str(fixture_path), "--out-dir", str(tmp_path),
+                 "--set", "backend.kind=fake", "--set", "method_a.distance_threshold=0.6", *flags]) == 1
+    assert " ERROR judge failed" in capsys.readouterr().err
 
 
 def test_runs_do_not_leak_lines_into_each_other(tickets):
@@ -138,9 +151,10 @@ def test_console_level_and_format(tickets, capsys):
 
 def test_progress_off_logs_processed_total_lines_on_console(tickets, capsys):
     setup_logging(cfg(**{"logging.progress": "off"}))
-    run_method(tickets, "c", cfg(), FakeBackend())
+    run_method(tickets, "c", cfg(**{"backend.embed_batch_size": 2}), FakeBackend())
     err = capsys.readouterr().err
     assert re.search(r"INFO method_c Tickets: \d+/18 problems=\d+$", err, re.M)
+    assert re.search(r"INFO embeddings: \d+/18$", err, re.M)  # parallel batches, counted in Tickets
     assert not BAR_NOISE.search(err)
 
 
@@ -151,7 +165,7 @@ def test_progress_on_shows_a_bar_instead_of_progress_lines(tickets, capsys):
     assert "method_c Tickets" in err and "\r" in err  # tqdm bar frames
     assert not re.search(r"INFO method_c Tickets: \d+/18 problems=\d+$", err, re.M)  # ~10% lines: .txt only
     assert re.search(r"INFO method_c Tickets: 18/18 problems=\d+ done", err)  # count line after the bar
-    assert any(re.search(r"method_c Tickets: \d+/18 problems=\d+$", l) for l in result.log)
+    assert not any(re.search(r"method_c Tickets: \d+/18 problems=\d+$", l) for l in result.log)
 
 
 def test_progress_auto_without_tty_has_no_bar(tickets, capsys):
@@ -170,7 +184,7 @@ def test_ticket_text_never_reaches_the_console(tickets, capsys):
     err = capsys.readouterr().err
     assert marker in "\n".join(result.log)  # log_summaries: .txt only
     assert marker not in err
-    for text in tickets["Opis"].dropna():
+    for text in [*tickets["Opis"].dropna(), *tickets["Tytuł"].dropna()]:
         for chunk in re.split(r"[\n.]", str(text)):
             if len(chunk.strip()) >= 20:
                 assert chunk.strip() not in err, chunk

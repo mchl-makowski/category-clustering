@@ -26,8 +26,9 @@ def parallel_map(fn: Callable[[T], R], items: Iterable[T], max_workers: int, des
         return [fn(x) for x in (progress(items, desc=desc) if desc else items)]
     with ThreadPoolExecutor(max_workers=min(max_workers, len(items))) as pool:
         futures = [pool.submit(fn, x) for x in items]
-        if desc:
-            with progress(total=len(futures), desc=desc) as bar:
-                for _ in as_completed(futures):
-                    bar.update()
-        return [f.result() for f in futures]
+        if not desc:
+            return [f.result() for f in futures]
+        with progress(total=len(futures), desc=desc) as bar:
+            for _ in as_completed(futures):
+                bar.update()
+            return [f.result() for f in futures]  # raises inside the bar: no "done" line after an error

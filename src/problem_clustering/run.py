@@ -19,9 +19,9 @@ import pandas as pd
 from .backend import Backend, TrackedBackend
 from .backend.runtime import with_runtime
 from .config import Config
-from .logs import capture
+from .logs import TXT_ONLY, capture
 from .methods import MethodContext, get_method
-from .naming import name_problems
+from .naming import FALLBACK_DESCRIPTION, name_problems
 from .result import (
     ASSIGNMENT_COLUMNS, CATALOGUE_COLUMNS, EMPTY_PROBLEM_DESCRIPTION, EMPTY_PROBLEM_ID, EMPTY_PROBLEM_NAME,
     ProblemDraft, RunResult,
@@ -39,12 +39,10 @@ def run_method(tickets: pd.DataFrame, method: str, config: Config, backend: Back
     method_fn = get_method(method)
     lines: list[str] = []
     with capture(lines):
-        result = _run(tickets, method, method_fn, config, backend)
-    result.log = lines
-    return result
+        return _run(tickets, method, method_fn, config, backend, lines)
 
 
-def _run(tickets, method, method_fn, config, backend) -> RunResult:
+def _run(tickets, method, method_fn, config, backend, lines) -> RunResult:
     started_at = datetime.now()
     start = time.perf_counter()
     inner, cache_stats = with_runtime(backend, config)
@@ -78,7 +76,8 @@ def _run(tickets, method, method_fn, config, backend) -> RunResult:
         for row, conf, level in zip(draft.members, draft.confidences, levels):
             assignments.loc[row] = [pid, draft.name, float(conf), level]
         catalogue_rows.append(_catalogue_row(pid, draft.name, draft.description, draft.members, tickets, config))
-        log.debug(f"{pid} tickets={len(draft.members)} name={draft.name!r}")
+        fallback = draft.description == FALLBACK_DESCRIPTION  # name is a Ticket's title: .txt only
+        log.debug(f"{pid} tickets={len(draft.members)} name={draft.name!r}", extra=TXT_ONLY if fallback else None)
     if empty_rows:
         for row in empty_rows:
             assignments.loc[row] = [EMPTY_PROBLEM_ID, EMPTY_PROBLEM_NAME, 1.0, None]
@@ -104,7 +103,7 @@ def _run(tickets, method, method_fn, config, backend) -> RunResult:
         assignments=assignments,
         catalogue=pd.DataFrame(catalogue_rows, columns=CATALOGUE_COLUMNS),
         usage=usage,
-        log=[],
+        log=lines,
         started_at=started_at,
         embeddings=embeddings,
         embedding_rows=list(texts.index) if embeddings is not None else None,

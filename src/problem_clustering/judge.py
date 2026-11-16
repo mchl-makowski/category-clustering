@@ -139,14 +139,14 @@ def _fmt(value: float | None) -> str:
 
 
 def judge_safely(run_result: RunResult, config: Config, backend: Backend) -> JudgeResult | None:
-    """`judge`, but a Judge failure never loses a finished run: on any error a WARNING is
+    """`judge`, but a Judge failure never loses a finished run: on any error an ERROR is
     logged (and appended to `run_result.log`) and None is returned, so the run can still be written."""
-    with capture(run_result.log):
-        try:
-            return _judge(run_result, config, backend)
-        except Exception as exc:  # noqa: BLE001 - any Judge failure; the run itself is done
-            log.warning(f"judge failed, run written without Judge: {type(exc).__name__}: {exc}")
-            return None
+    try:
+        return judge(run_result, config, backend)
+    except Exception as exc:  # noqa: BLE001 - any Judge failure; the run itself is done
+        with capture(run_result.log):
+            log.error(f"judge failed, run written without Judge: {type(exc).__name__}: {exc}")
+        return None
 
 
 def _split_pairs(run_result, order, members, texts, k, config, backend) -> list[tuple[str, str]]:
