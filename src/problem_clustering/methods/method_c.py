@@ -21,6 +21,7 @@ Problem ids used inside the run (`C-0001`, …, creation order) are provisional;
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -31,8 +32,11 @@ from ..prompts import (
     AGENT_NUDGE, CONSOLIDATION_SCHEMA, CONSOLIDATION_SCHEMA_NAME, agent_messages, agent_tools,
     consolidation_messages,
 )
+from ..logs import progress
 from ..result import CONFIDENCE_LEVELS, ProblemDraft
 from . import MethodContext
+
+log = logging.getLogger(__name__)
 
 FALLBACK_LEVEL = "zgadywane"
 _TICKET_SNIPPET = 500  # chars of a Ticket text returned by tools
@@ -175,7 +179,7 @@ class _Agent:
             try:
                 reply = self.ctx.backend.chat(list(messages), tools=self.tools)
             except ContentFilteredError:
-                self.ctx.log(f"method_c: row {row} agent reply blocked by content filter")
+                log.warning(f"method_c: row {row} agent reply blocked by content filter")
                 break
             if not reply.tool_calls:
                 used += 1
@@ -202,13 +206,17 @@ class _Agent:
         if decision is None:
             self.stats["fallback"] += 1
             self._add(self._new_problem(None, None), row, FALLBACK_LEVEL)
-            self.ctx.log(f"method_c: row {row} no decision after {used} tool calls -> new Problem")
+            log.debug(f"method_c: row {row} no decision after {used} tool calls -> new Problem "
+                      f"{self.row_problem[row]} ({FALLBACK_LEVEL})")
         elif decision.problem_id is not None:
             self.stats["assigned"] += 1
             self._add(self.problems[decision.problem_id], row, decision.level)
+            log.debug(f"method_c: row {row} -> {decision.problem_id} ({decision.level}) after {used} tool calls")
         else:
             self.stats["created"] += 1
             self._add(self._new_problem(decision.name, decision.description), row, decision.level)
+            log.debug(f"method_c: row {row} -> new Problem {self.row_problem[row]} ({decision.level}) "
+                      f"after {used} tool calls")
 
     # --- consolidation ---------------------------------------------------
     def consolidate(self, processed: int) -> None:
@@ -224,7 +232,7 @@ class _Agent:
                     chunk = [p for p in group[start: start + size] if p.pid in self.problems]
                     if len(chunk) >= 2:
                         self._consolidate_chunk(chunk)
-        self.ctx.log(f"method_c: consolidation after {processed} Tickets: "
+        log.info(f"method_c: consolidation after {processed} Tickets: "
                      f"{self.stats['merged'] - merges_before} Problems merged, {len(self.problems)} remain")
 
     def _consolidate_chunk(self, chunk: list[_Problem]) -> None:
@@ -240,12 +248,12 @@ class _Agent:
             reply = self.ctx.backend.chat(consolidation_messages(self.ctx.config.granularity, payload),
                                           response_format=fmt)
         except ContentFilteredError:
-            self.ctx.log("method_c: consolidation blocked by content filter, skipped")
+            log.warning("method_c: consolidation blocked by content filter, skipped")
             return
         try:
             merges = reply.json()["merges"]
         except (ValueError, TypeError, KeyError):
-            self.ctx.log("method_c: consolidation reply not valid JSON, skipped")
+            log.warning("method_c: consolidation reply not valid JSON, skipped")
             return
         allowed = {p.pid for p in chunk}
         for merge in merges if isinstance(merges, list) else []:
@@ -272,7 +280,7 @@ class _Agent:
                 self.row_problem[row] = survivor.pid
         survivor.name, survivor.description = name, description
         self.stats["merged"] += len(ids) - 1
-        self.ctx.log(f"method_c: merged {', '.join(ids)} -> {survivor.pid}")
+        log.debug(f"method_c: merged {', '.join(ids)} -> {survivor.pid}")
 
     def drafts(self) -> list[ProblemDraft]:
         return [ProblemDraft(members=list(p.members), confidences=[CONFIDENCE_LEVELS[lv] for lv in p.levels],
@@ -284,13 +292,16 @@ def run(ctx: MethodContext) -> list[ProblemDraft]:
     cfg = ctx.config.method_c
     agent = _Agent(ctx)
     since = 0
-    for n, row in enumerate(ctx.texts.index, start=1):
+    bar = progress(ctx.texts.index, desc="method_c Tickets")
+    for n, row in enumerate(bar, start=1):
         agent.classify(row)
         since += 1
         if cfg.consolidate_every > 0 and n % cfg.consolidate_every == 0:
             agent.consolidate(n)
             since = 0
+        bar.set_postfix(problems=len(agent.problems))
     if since:
         agent.consolidate(len(ctx.texts))
-    ctx.log("method_c: " + " ".join(f"{k}={v}" for k, v in agent.stats.items()))
+    log.info("method_c: " + " ".join(f"{k}={v}" for k, v in agent.stats.items())
+             + f" -> {len(agent.problems)} Problems")
     return agent.drafts()

@@ -66,12 +66,25 @@ problem-clustering run --method a --input export.xlsx --config config.example.ya
 # Put the Metrics of several runs side by side (writes outputs/yymmdd_hhmm_comparison.xlsx)
 problem-clustering compare outputs/261115_1200_a.xlsx outputs/261115_1210_b.xlsx outputs/261115_1230_c.xlsx
 
+# Console verbosity: -v (DEBUG) or -q (WARNING) override logging.level; --no-progress = logging.progress=off
+problem-clustering run --method c --input export.xlsx --config config.example.yaml -v --no-progress
+
 # Offline smoke run on the fixture
 uv run problem-clustering run --method c --input tests/fixtures/tickets.xlsx \
     --config config.example.yaml --set backend.kind=fake --set runtime.cache_dir=null
 ```
 
 With uv, prefix with `uv run`; `python -m problem_clustering ...` works too. Both subcommands take `--out-dir` (default `outputs`). `--config` is optional; without it all defaults below apply.
+
+CLI flags for console output (see `logging` below):
+
+| Flag | Meaning |
+|---|---|
+| `-v` / `--verbose` | Console at DEBUG (per-Ticket / per-Problem detail); overrides `logging.level` |
+| `-q` / `--quiet` | Console at WARNING (retries, content-filter fallbacks, Judge failure); overrides `logging.level` |
+| `--no-progress` | `run` only: no progress bars, same as `--set logging.progress=off` |
+
+`-v` and `-q` are mutually exclusive; both subcommands take them.
 
 ### Outputs
 
@@ -80,7 +93,7 @@ With uv, prefix with `uv run`; `python -m problem_clustering ...` works too. Bot
   - `Problem Catalogue`: `problem_id`, `problem_name`, `description` (Polish), `ticket_count`, `example_tickets`.
   - `Judge`: one row per Mixed check and per Split pair, with verdict and reason.
   - `Metrics`: Problem count, one-Ticket share, size distribution, purity, split rate, LLM calls, tokens, embedding calls, runtime (for the Method and the Judge separately). No cost estimate.
-- `yymmdd_hhmm_<method>.txt`: run log (config, progress, iterations / consolidations, totals).
+- `yymmdd_hhmm_<method>.txt`: run log, one `[HH:MM:SS] LEVEL message` line per record, always at DEBUG whatever the console level (config, ~10% progress lines, Problem counts, iterations / consolidations, retries, totals; Judge lines appended). No progress bar frames.
 - `compare` writes `yymmdd_hhmm_comparison.xlsx` (sheet `Comparison`: one row per metric, one column per run).
 
 ### Configuration (YAML)
@@ -172,9 +185,16 @@ Copy [`config.example.yaml`](config.example.yaml) and edit it. Every section rej
 | `backoff_multiplier` | `2.0` | Wait multiplier per retry |
 | `backoff_max_s` | `60.0` | Max wait between retries |
 
+**`logging`**: console output of `run` / `compare` and the notebook (`setup_logging(config)`). Without `setup_logging` (library use, tests) nothing is printed. Console lines are `HH:MM:SS LEVEL message`, on stderr; they carry row numbers, Problem ids/names, Confidence Levels and counts, never Ticket text (`symptom_summary.log_summaries` lines go to the `.txt` only).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `level` | `INFO` | Console level: `DEBUG` (per-Ticket / per-Problem detail, config JSON), `INFO` (steps, processed/total, Problem counts), `WARNING` (retries, content-filter fallbacks, Judge failure), `ERROR`. CLI `-v` / `-q` override it |
+| `progress` | `auto` | Progress bars for long loops (embeddings, Symptom Summary, Method B verification / merge checks, Method C Tickets, naming, Judge checks): `auto` = a bar when stderr is a terminal or in Jupyter, otherwise none (Foundry jobs, CI); `on`; `off`. Without a bar an INFO processed/total line is logged about every 10%; each loop ends with an INFO count line |
+
 ### Content filter
 
-When the Azure content filter blocks a prompt (HTTP 400 `content_filter`) or a reply (`finish_reason=content_filter`, refusal), the run does not stop. The step falls back and writes a `content filter` line to the `.txt` log: Symptom Summary uses the raw masked text; naming names the Problem after its first Ticket's title; Method B keeps a cluster as one Problem and does not merge; the Method C agent gives the Ticket a new Problem (`zgadywane`) and consolidation skips that group; a Judge check gets verdict `error` and is left out of purity and split rate. Retries happen only in `runtime` (the SDK's own retries are off).
+When the Azure content filter blocks a prompt (HTTP 400 `content_filter`) or a reply (`finish_reason=content_filter`, refusal), the run does not stop. The step falls back and logs a WARNING `content filter` line (console and `.txt`): Symptom Summary uses the raw masked text; naming names the Problem after its first Ticket's title; Method B keeps a cluster as one Problem and does not merge; the Method C agent gives the Ticket a new Problem (`zgadywane`) and consolidation skips that group; a Judge check gets verdict `error` and is left out of purity and split rate. Retries happen only in `runtime` (the SDK's own retries are off).
 
 ### Cache
 
@@ -188,7 +208,7 @@ With `runtime.cache_dir` set, every embedding (per text) and every chat reply (p
 2. shows the `compare` table and each Method's Judge verdicts,
 3. browses each Method's Problems: name, description and their Tickets.
 
-It defaults to the fixture and the Fake backend, so it runs offline top to bottom. On Foundry, edit the first code cell: `INPUT` = your export, `OVERRIDES = {}` (or your overrides), optionally `CONFIG`, `METHODS`, `BROWSE_PROBLEMS`.
+It calls `setup_logging(config)`, so progress shows as a `tqdm` widget (needs `ipywidgets`, installed with the package) and INFO lines appear under each cell. It defaults to the fixture and the Fake backend, so it runs offline top to bottom. On Foundry, edit the first code cell: `INPUT` = your export, `OVERRIDES = {}` (or your overrides), optionally `CONFIG`, `METHODS`, `BROWSE_PROBLEMS`.
 
 ```bash
 uv run --with jupyter jupyter lab notebooks/compare.ipynb   # dev machine
@@ -198,6 +218,6 @@ On Foundry, open it in the workspace's Jupyter after the pip install above.
 
 ## Layout
 
-- `src/problem_clustering/`: the one shared module. Public API in `__init__.py`: `load_tickets`, `load_config`, `run_method`, `judge`, `judge_safely` (Judge errors go to the run log instead of losing the run), `write_outputs`, `compare`; `backend.make_backend`.
+- `src/problem_clustering/`: the one shared module. Public API in `__init__.py`: `load_tickets`, `load_config`, `run_method`, `judge`, `judge_safely` (Judge errors go to the run log instead of losing the run), `write_outputs`, `compare`, `setup_logging` (console level + progress bars; `logs.py`); `backend.make_backend`.
 - `cli.py`, `notebooks/compare.ipynb`: thin wrappers, no Method logic.
 - `tests/`: pytest on the public API with the Fake backend and `tests/fixtures/tickets.xlsx` (~20 hand-written Tickets, regenerated by `make_fixture.py`).
