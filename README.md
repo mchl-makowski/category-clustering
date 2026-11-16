@@ -81,7 +81,7 @@ CLI flags for console output (see `logging` below):
 | Flag | Meaning |
 |---|---|
 | `-v` / `--verbose` | Console at DEBUG (per-Ticket / per-Problem detail); overrides `logging.level` |
-| `-q` / `--quiet` | Console at WARNING (retries, content-filter fallbacks, Judge failure); overrides `logging.level` |
+| `-q` / `--quiet` | Console at WARNING (retries, content-filter fallbacks; Judge failure is ERROR); overrides `logging.level` |
 | `--no-progress` | `run` only: no progress bars, same as `--set logging.progress=off` |
 
 `-v` and `-q` are mutually exclusive; both subcommands take them.
@@ -93,7 +93,7 @@ CLI flags for console output (see `logging` below):
   - `Problem Catalogue`: `problem_id`, `problem_name`, `description` (Polish), `ticket_count`, `example_tickets`.
   - `Judge`: one row per Mixed check and per Split pair, with verdict and reason.
   - `Metrics`: Problem count, one-Ticket share, size distribution, purity, split rate, LLM calls, tokens, embedding calls, runtime (for the Method and the Judge separately). No cost estimate.
-- `yymmdd_hhmm_<method>.txt`: run log, one `[HH:MM:SS] LEVEL message` line per record, always at DEBUG whatever the console level (config, ~10% progress lines, Problem counts, iterations / consolidations, retries, totals; Judge lines appended). No progress bar frames.
+- `yymmdd_hhmm_<method>.txt`: run log, one `[HH:MM:SS] LEVEL message` line per record, always at DEBUG whatever the console level (config, each loop's final processed/total count, Problem counts, iterations / consolidations, retries, totals; Judge lines appended). No progress bar frames or ~10% progress lines.
 - `compare` writes `yymmdd_hhmm_comparison.xlsx` (sheet `Comparison`: one row per metric, one column per run).
 
 ### Configuration (YAML)
@@ -189,8 +189,8 @@ Copy [`config.example.yaml`](config.example.yaml) and edit it. Every section rej
 
 | Key | Default | Meaning |
 |---|---|---|
-| `level` | `INFO` | Console level: `DEBUG` (per-Ticket / per-Problem detail, config JSON), `INFO` (steps, processed/total, Problem counts), `WARNING` (retries, content-filter fallbacks, Judge failure), `ERROR`. CLI `-v` / `-q` override it |
-| `progress` | `auto` | Progress bars for long loops (embeddings, Symptom Summary, Method B verification / merge checks, Method C Tickets, naming, Judge checks): `auto` = a bar when stderr is a terminal or in Jupyter, otherwise none (Foundry jobs, CI); `on`; `off`. Without a bar an INFO processed/total line is logged about every 10%; each loop ends with an INFO count line |
+| `level` | `INFO` | Console level: `DEBUG` (per-Ticket / per-Problem detail, config JSON), `INFO` (steps, processed/total, Problem counts), `WARNING` (retries, content-filter fallbacks), `ERROR` (Judge failure). CLI `-v` / `-q` override it |
+| `progress` | `auto` | Progress bars for long loops (embeddings, Symptom Summary, Method B verification / merge checks, Method C Tickets, naming, Judge checks): `auto` = a bar when stderr is a terminal or in Jupyter, otherwise none (Foundry jobs, CI); `on`; `off`. Without a bar an INFO processed/total line goes to the console about every 10% (not to the `.txt`); embeddings count Tickets; each loop ends with an INFO count line |
 
 ### Content filter
 

@@ -40,7 +40,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     paths = write_outputs(result, judge_result, args.out_dir)
     print(f"{paths['xlsx']}\n{paths['txt']}")
     if not args.no_judge and judge_result is None:
-        return 1  # the Judge failure was logged (WARNING: console + .txt)
+        return 1  # the Judge failure was logged (ERROR: console + .txt)
     return 0
 
 

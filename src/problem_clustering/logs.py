@@ -7,7 +7,7 @@ console handler. `run_method` / `judge` collect the `.txt` run log with `capture
 
 Record tags (`extra=`):
 - `TXT_ONLY`: `.txt` only, never the console (e.g. Symptom Summary text).
-- `PROGRESS`: the ~10% processed/total lines; dropped from the console while a bar shows.
+- `PROGRESS`: the ~10% processed/total lines; console only, and only when bars are off.
 
 Never log Ticket text without `TXT_ONLY`.
 """
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import threading
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Iterable, Iterator, TypeVar
 
@@ -69,6 +70,9 @@ class _ListHandler(logging.Handler):
         self.lines = lines
         self.setFormatter(logging.Formatter(TXT_FORMAT, DATE_FORMAT))
 
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not getattr(record, "progress", False) and super().filter(record)  # no progress noise in .txt
+
     def emit(self, record: logging.LogRecord) -> None:
         self.lines.append(self.format(record))
 
@@ -104,19 +108,20 @@ def _in_jupyter() -> bool:
 
 
 @contextmanager
-def capture(lines: list[str]) -> Iterator[list[str]]:
+def capture(lines: list[str]) -> Iterator[None]:
     """Append every package record (DEBUG and up, `[HH:MM:SS] LEVEL message`) to `lines` while open."""
     handler = _ListHandler(lines)
     _package.addHandler(handler)
     try:
-        yield lines
+        yield
     finally:
         _package.removeHandler(handler)
 
 
 class Progress:
     """processed/total for one long loop: a transient bar when the console has bars on,
-    otherwise a `PROGRESS` INFO line about every 10%; always a final INFO count line."""
+    otherwise a `PROGRESS` INFO line about every 10%; always a final INFO count line.
+    `update` is thread-safe (parallel workers may call it)."""
 
     def __init__(self, iterable: Iterable[T] | None, total: int | None, desc: str):
         self.iterable = iterable
@@ -125,6 +130,7 @@ class Progress:
         self.n = 0
         self.postfix: dict[str, object] = {}
         self._next_line = self._step()
+        self._lock = threading.Lock()
         console = _console()
         self._bar = None
         if console is not None and console.bars and self.total:
@@ -143,12 +149,13 @@ class Progress:
             self._bar.set_postfix(values, refresh=False)
 
     def update(self, n: int = 1) -> None:
-        self.n += n
-        if self._bar is not None:
-            self._bar.update(n)
-        if self.n >= self._next_line and self.n < self.total:
-            log.info(self._counts(), extra=PROGRESS)
-            self._next_line = (self.n // self._step() + 1) * self._step()
+        with self._lock:
+            self.n += n
+            if self._bar is not None:
+                self._bar.update(n)
+            if self.n >= self._next_line and self.n < self.total:
+                log.info(self._counts(), extra=PROGRESS)
+                self._next_line = (self.n // self._step() + 1) * self._step()
 
     def _close_bar(self) -> None:
         if self._bar is not None:
