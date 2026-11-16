@@ -28,21 +28,20 @@ class MethodContext:
     texts: pd.Series  # grouped model input for non-empty Tickets only, indexed by ticket row label
     config: Config
     backend: Backend  # usage-tracked
-    log: Callable[[str], None]
     _embeddings: np.ndarray | None = field(default=None, repr=False)
     _embeddings_lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
-    def embed(self, texts: list[str]) -> np.ndarray:
-        """Embed any texts (batched, parallel, cut to `backend.embed_max_chars`)."""
+    def embed(self, texts: list[str], desc: str | None = None) -> np.ndarray:
+        """Embed any texts (batched, parallel, cut to `backend.embed_max_chars`); `desc` shows progress."""
         cfg = self.config
         return embed_texts(self.backend, texts, cfg.backend.embed_batch_size, cfg.runtime.max_concurrency,
-                           cfg.backend.embed_max_chars)
+                           cfg.backend.embed_max_chars, desc=desc)
 
     def embeddings(self) -> np.ndarray:
         """Embeddings of `texts` (row order = `texts.index`), computed once per run (thread-safe)."""
         with self._embeddings_lock:
             if self._embeddings is None:
-                self._embeddings = self.embed(list(self.texts))
+                self._embeddings = self.embed(list(self.texts), desc="embeddings")
             return self._embeddings
 
     def computed_embeddings(self) -> np.ndarray | None:

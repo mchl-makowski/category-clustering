@@ -73,10 +73,11 @@ class Backend(Protocol):
 
 
 def embed_texts(backend: Backend, texts: list[str], batch_size: int = 64, max_workers: int = 1,
-                max_chars: int | None = None) -> np.ndarray:
+                max_chars: int | None = None, desc: str | None = None) -> np.ndarray:
     """Embed any number of texts in batches (up to `max_workers` batches in parallel); returns an (n, dim) array.
 
-    Each text is cut to `max_chars` first (embedding model token limit; see `backend.embed_max_chars`)."""
+    Each text is cut to `max_chars` first (embedding model token limit; see `backend.embed_max_chars`).
+    `desc` reports progress per batch (leave it None for one-off lookups)."""
     from ..concurrency import parallel_map
 
     if not texts:
@@ -84,7 +85,8 @@ def embed_texts(backend: Backend, texts: list[str], batch_size: int = 64, max_wo
     if max_chars:
         texts = [t[:max_chars] for t in texts]
     batches = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
-    return np.vstack(parallel_map(lambda batch: backend.embed(batch).vectors, batches, max_workers))
+    return np.vstack(parallel_map(lambda batch: backend.embed(batch).vectors, batches, max_workers,
+                                  desc=desc and f"{desc} ({len(texts)} texts, batches)"))
 
 
 def json_schema_format(name: str, schema: dict[str, Any]) -> dict[str, Any]:

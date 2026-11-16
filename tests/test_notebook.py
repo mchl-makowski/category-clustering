@@ -8,7 +8,8 @@ import pandas as pd
 import pytest
 
 NOTEBOOK = Path(__file__).parents[1] / "notebooks" / "compare.ipynb"
-PUBLIC_API = {"load_config", "load_tickets", "run_method", "judge", "judge_safely", "write_outputs", "compare"}
+PUBLIC_API = {"load_config", "load_tickets", "run_method", "judge", "judge_safely", "write_outputs", "compare",
+              "setup_logging"}
 
 
 def _code_cells():

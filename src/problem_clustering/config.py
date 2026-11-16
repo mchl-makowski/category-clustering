@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 GranularityLevel = Literal["coarse", "medium", "fine"]
@@ -98,6 +98,23 @@ class JudgeConfig(Section):
     max_problems: int | None = None  # judge only the N largest Problems
 
 
+class LoggingConfig(Section):
+    """Console output of a run (`setup_logging`). The `.txt` run log always records DEBUG."""
+
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"  # console level
+    progress: Literal["auto", "on", "off"] = "auto"  # auto = bar on a TTY or in Jupyter, else ~10% lines
+
+    @field_validator("level", mode="before")
+    @classmethod
+    def _upper(cls, v: Any) -> Any:
+        return v.upper() if isinstance(v, str) else v
+
+    @field_validator("progress", mode="before")
+    @classmethod
+    def _yaml_bool(cls, v: Any) -> Any:  # YAML 1.1 reads bare on/off as booleans
+        return {True: "on", False: "off"}.get(v, v) if isinstance(v, bool) else v
+
+
 class Config(Section):
     granularity: GranularityLevel = "medium"
     backend: BackendConfig = BackendConfig()
@@ -109,6 +126,7 @@ class Config(Section):
     symptom_summary: SymptomSummaryConfig = SymptomSummaryConfig()
     runtime: RuntimeConfig = RuntimeConfig()
     judge: JudgeConfig = JudgeConfig()
+    logging: LoggingConfig = LoggingConfig()
 
 
 class DeploymentSettings(BaseSettings):

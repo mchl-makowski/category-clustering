@@ -8,18 +8,20 @@ so every Method groups on it. Empty Tickets never get here (X-0000).
 
 from __future__ import annotations
 
-from typing import Callable
+import logging
 
 import pandas as pd
 
 from .backend import Backend, ContentFilteredError, json_schema_format
 from .concurrency import parallel_map
 from .config import Config
+from .logs import TXT_ONLY
 from .prompts import SUMMARY_SCHEMA, SUMMARY_SCHEMA_NAME, summary_messages
 
+log = logging.getLogger(__name__)
 
-def symptom_summaries(texts: pd.Series, config: Config, backend: Backend,
-                      log: Callable[[str], None]) -> pd.Series:
+
+def symptom_summaries(texts: pd.Series, config: Config, backend: Backend) -> pd.Series:
     """One LLM call per Ticket (in parallel); returns a Series aligned with `texts` holding single-line summaries."""
     fmt = json_schema_format(SUMMARY_SCHEMA_NAME, SUMMARY_SCHEMA)
 
@@ -30,13 +32,13 @@ def symptom_summaries(texts: pd.Series, config: Config, backend: Backend,
             return None
         return " ".join(str(reply["summary"]).split())
 
-    summaries = parallel_map(summarise, list(texts), config.runtime.max_concurrency)
+    summaries = parallel_map(summarise, list(texts), config.runtime.max_concurrency, desc="symptom summary")
     out = {}
     for (row, text), summary in zip(texts.items(), summaries):
         if summary is None:
-            log(f"summary row={row}: blocked by content filter, raw masked text grouped instead")
+            log.warning(f"summary row={row}: blocked by content filter, raw masked text grouped instead")
         out[row] = summary or " ".join(text.split())  # never hand an empty string to grouping
         if config.symptom_summary.log_summaries:
-            log(f"summary row={row}: {out[row]}")
-    log(f"symptom summaries={len(out)}")
+            log.debug(f"summary row={row}: {out[row]}", extra=TXT_ONLY)  # Ticket text: .txt only, even at DEBUG
+    log.info(f"symptom summaries={len(out)}")
     return pd.Series(out, index=texts.index, dtype=object)

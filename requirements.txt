@@ -6,10 +6,20 @@ anyio==4.16.0
     # via
     #   httpx2
     #   openai
+asttokens==3.0.2
+    # via stack-data
 cloudpickle==3.1.2
     # via joblib
+colorama==0.4.6 ; sys_platform == 'win32'
+    # via
+    #   ipython
+    #   tqdm
+comm==0.2.3
+    # via ipywidgets
 et-xmlfile==2.0.0
     # via openpyxl
+executing==2.3.0
+    # via stack-data
 h11==0.16.0 ; sys_platform != 'emscripten'
     # via httpcore2
 httpcore2==2.16.0 ; sys_platform != 'emscripten'
@@ -20,10 +30,22 @@ idna==3.20
     # via
     #   anyio
     #   httpx2
+ipython==9.18.1
+    # via ipywidgets
+ipython-pygments-lexers==1.1.1
+    # via ipython
+ipywidgets==8.1.9
+    # via problem-clustering
+jedi==0.20.1
+    # via ipython
 jiter==0.19.0
     # via openai
 joblib==1.6.0
     # via scikit-learn
+jupyterlab-widgets==3.0.17
+    # via ipywidgets
+matplotlib-inline==0.2.2
+    # via ipython
 narwhals==2.28.0
     # via scikit-learn
 numpy==2.4.6
@@ -38,6 +60,18 @@ openpyxl==3.1.5
     # via problem-clustering
 pandas==3.1.1
     # via problem-clustering
+parso==0.8.7
+    # via jedi
+pexpect==4.9.0 ; sys_platform != 'emscripten' and sys_platform != 'win32'
+    # via ipython
+prompt-toolkit==3.0.53
+    # via ipython
+psutil==7.2.2 ; sys_platform != 'android' and sys_platform != 'cygwin' and sys_platform != 'emscripten'
+    # via ipython
+ptyprocess==0.7.0 ; sys_platform != 'emscripten' and sys_platform != 'win32'
+    # via pexpect
+pure-eval==0.2.4
+    # via stack-data
 pydantic==2.14.3
     # via
     #   openai
@@ -47,6 +81,10 @@ pydantic-core==2.50.4
     # via pydantic
 pydantic-settings==2.16.3
     # via problem-clustering
+pygments==2.21.0
+    # via
+    #   ipython
+    #   ipython-pygments-lexers
 python-dateutil==4.0.0
     # via pandas
 python-dotenv==1.2.4
@@ -59,8 +97,17 @@ scipy==1.17.1
     # via scikit-learn
 sniffio==1.3.1
     # via openai
+stack-data==0.6.3
+    # via ipython
 threadpoolctl==3.8.0
     # via scikit-learn
+tqdm==4.70.1
+    # via problem-clustering
+traitlets==5.16.1
+    # via
+    #   ipython
+    #   ipywidgets
+    #   matplotlib-inline
 truststore==0.10.5 ; sys_platform != 'emscripten'
     # via
     #   httpcore2
@@ -69,6 +116,7 @@ typing-extensions==4.16.0
     # via
     #   anyio
     #   httpx2
+    #   ipython
     #   openai
     #   pydantic
     #   pydantic-core
@@ -82,3 +130,7 @@ tzdata==2026.6
     # via
     #   pandas
     #   python-dateutil
+wcwidth==0.9.4
+    # via prompt-toolkit
+widgetsnbextension==4.0.16
+    # via ipywidgets

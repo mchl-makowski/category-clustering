@@ -64,10 +64,10 @@ A run currently prints only the output file paths. While it runs (minutes for ~2
 
 ## Acceptance criteria
 
-- [ ] `run` shows a progress bar (or ~10% processed/total lines) for every long loop listed above.
-- [ ] Problem counts are logged after each step listed above, for all three Methods.
-- [ ] Console verbosity is set from config and CLI (`-v` / `-q`); progress can be turned off (`logging.progress`, `--no-progress`).
-- [ ] The `.txt` run log is still written, records at DEBUG, carries the level per line, and has no progress bar noise.
-- [ ] The notebook runs with a working progress widget; `setup_logging` is part of the public API.
-- [ ] No console output without `setup_logging`; Ticket text never reaches the console.
-- [ ] README documents the new config keys and flags; `requirements.txt` updated; tests pass.
+- [x] `run` shows a progress bar (or ~10% processed/total lines) for every long loop listed above.
+- [x] Problem counts are logged after each step listed above, for all three Methods.
+- [x] Console verbosity is set from config and CLI (`-v` / `-q`); progress can be turned off (`logging.progress`, `--no-progress`).
+- [x] The `.txt` run log is still written, records at DEBUG, carries the level per line, and has no progress bar noise.
+- [x] The notebook runs with a working progress widget; `setup_logging` is part of the public API.
+- [x] No console output without `setup_logging`; Ticket text never reaches the console.
+- [x] README documents the new config keys and flags; `requirements.txt` updated; tests pass.

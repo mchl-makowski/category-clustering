@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Spec #2 implemented (#3–#10): Methods A/B/C, Judge + Metrics, `compare`, cache/retry/concurrency, Symptom Summary, CLI `run`/`compare`, comparison notebook `notebooks/compare.ipynb`, `README.md` (setup + every env var/YAML key). All `TASK.md` acceptance criteria ticked; real runs happen on Foundry (ADR-0001). Planning decisions are settled (see "Planning decisions" below).
+Spec #2 implemented (#3–#10): Methods A/B/C, Judge + Metrics, `compare`, cache/retry/concurrency, Symptom Summary, CLI `run`/`compare`, comparison notebook `notebooks/compare.ipynb`, `README.md` (setup + every env var/YAML key). Run logging + progress (`TASK.md`, 2026-11-16) implemented: stdlib `logging` + `tqdm`, `setup_logging`, `logging` config section. All `TASK.md` acceptance criteria ticked; real runs happen on Foundry (ADR-0001). Planning decisions are settled (see "Planning decisions" below).
 
 - Setup/tests: `uv sync`, then `uv run pytest` (offline, Fake backend). Python 3.11 via uv.
 - CLI: `uv run problem-clustering run --method a|b|c --input <xlsx> [--config config.example.yaml] [--set key=value] [--no-judge]`; `compare <workbooks...>`.
@@ -14,8 +14,9 @@ Spec #2 implemented (#3–#10): Methods A/B/C, Judge + Metrics, `compare`, cache
 
 ### Layout (`src/problem_clustering/`)
 
-- `__init__.py`: public API (`load_tickets`, `load_config`, `run_method`, `judge`, `write_outputs`, `compare`). Tests use only this seam + `backend.FakeBackend`. Notebook: only these + `backend.make_backend` (`tests/test_notebook.py` executes it).
-- `tickets.py` (Excel contract), `text.py` (Tytuł+Opis, PII masking), `prompts.py` (Granularity paragraph, prompt builders), `naming.py` (shared naming step), `clustering.py` (agglomerative, centroid confidence), `result.py` (`ProblemDraft`, `RunResult`, Confidence Levels, X-0000), `run.py` (shared pipeline), `output.py` (workbook/log), `cli.py`, `config.py`.
+- `__init__.py`: public API (`load_tickets`, `load_config`, `run_method`, `judge`, `write_outputs`, `compare`, `setup_logging`). Tests use only this seam + `backend.FakeBackend`. Notebook: only these + `backend.make_backend` (`tests/test_notebook.py` executes it).
+- `tickets.py` (Excel contract), `text.py` (Tytuł+Opis, PII masking), `prompts.py` (Granularity paragraph, prompt builders), `naming.py` (shared naming step), `clustering.py` (agglomerative, centroid confidence), `result.py` (`ProblemDraft`, `RunResult`, Confidence Levels, X-0000), `run.py` (shared pipeline), `output.py` (workbook/log), `cli.py`, `config.py`, `concurrency.py` (`parallel_map(..., desc=)`).
+- `logs.py`: log with `logging.getLogger(__name__)`; package logger always DEBUG + `NullHandler` (silent without `setup_logging`). `capture(lines)` collects the `.txt` (`run_method`, `judge`). `progress(iterable, total, desc)` for sequential loops; `parallel_map(desc=)` for parallel ones. Ticket text only with `extra=TXT_ONLY`.
 - `methods/method_<x>.py` exposes `run(ctx: MethodContext) -> list[ProblemDraft]`; found by name, no registry edit. `ctx.embeddings()` embeds once per run.
 - `backend/`: `base.py` (protocol, `ChatReply`/`ToolCall`/`Usage`, `json_schema_format`, `embed_texts`), `fake.py` (scripting: `queue`, `on`, `tool_reply`, `@default_handler(schema_name)`), `azure.py` (`FoundrySettings` env `FOUNDRY_*`), `tracking.py` (usage counters).
 - `config.py`: one sub-model per section; add a section class + one `Config` field.

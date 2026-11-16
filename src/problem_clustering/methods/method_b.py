@@ -12,6 +12,7 @@ Naming is done by run_method.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import numpy as np
@@ -21,12 +22,15 @@ from ..clustering import (
     agglomerative, centroids, drafts_from_groups, groups_from_labels, nearest_pairs, sample_members, unit_rows,
 )
 from ..concurrency import parallel_map
+from ..logs import progress
 from ..prompts import (
     MERGE_SCHEMA, MERGE_SCHEMA_NAME, VERIFICATION_SCHEMA, VERIFICATION_SCHEMA_NAME, merge_messages,
     verification_messages,
 )
 from ..result import ProblemDraft
 from . import MethodContext
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -45,7 +49,7 @@ def run(ctx: MethodContext) -> list[ProblemDraft]:
     unit = unit_rows(vectors)
     texts = list(ctx.texts)
     clusters = _cluster(vectors, list(range(len(texts))), cfg.coarse_threshold, cfg.linkage)
-    ctx.log(f"method_b: coarse threshold={cfg.coarse_threshold} -> {len(clusters)} candidate Problems")
+    log.info(f"method_b: coarse threshold={cfg.coarse_threshold} -> {len(clusters)} candidate Problems")
 
     verdicts: dict[frozenset[int], bool] = {}  # cluster -> is one Problem (never re-asked)
     verify_fmt = json_schema_format(VERIFICATION_SCHEMA_NAME, VERIFICATION_SCHEMA)
@@ -55,15 +59,17 @@ def run(ctx: MethodContext) -> list[ProblemDraft]:
         try:
             reply = ctx.backend.chat(verification_messages(ctx.config.granularity, sample), response_format=verify_fmt)
         except ContentFilteredError:
-            ctx.log(f"method_b: verification blocked by content filter, candidate kept as one Problem "
-                    f"({len(c.positions)} Tickets)")
+            log.warning(f"method_b: verification blocked by content filter, candidate kept as one Problem "
+                        f"({len(c.positions)} Tickets)")
             return True
         return bool(reply.json()["one_problem"])
 
-    def verify(current: list[_Cluster]) -> int:
+    def verify(current: list[_Cluster], iteration: int) -> int:
         """Ask, in parallel, about every multi-Ticket cluster not verified yet; returns how many were asked."""
         todo = list({c.key: c for c in current if len(c.positions) >= 2 and c.key not in verdicts}.values())
-        for c, verdict in zip(todo, parallel_map(ask_one_problem, todo, ctx.config.runtime.max_concurrency)):
+        replies = parallel_map(ask_one_problem, todo, ctx.config.runtime.max_concurrency,
+                               desc=f"method_b iteration {iteration} verification")
+        for c, verdict in zip(todo, replies):
             verdicts[c.key] = verdict
         return len(todo)
 
@@ -71,9 +77,10 @@ def run(ctx: MethodContext) -> list[ProblemDraft]:
     merge_fmt = json_schema_format(MERGE_SCHEMA_NAME, MERGE_SCHEMA)
     per_side_sample = max(1, cfg.sample_size // 2)  # merge check shows two groups
 
-    def merge_step(current: list[_Cluster]) -> tuple[list[_Cluster], int]:
+    def merge_step(current: list[_Cluster], iteration: int) -> tuple[list[_Cluster], int]:
         merged_into: dict[int, _Cluster] = {}
-        for i, j in _neighbour_pairs(unit, current, cfg.merge_neighbours):
+        pairs = _neighbour_pairs(unit, current, cfg.merge_neighbours)
+        for i, j in progress(pairs, desc=f"method_b iteration {iteration} merge checks"):
             if i in merged_into or j in merged_into:
                 continue
             a, b = current[i], current[j]
@@ -88,12 +95,13 @@ def run(ctx: MethodContext) -> list[ProblemDraft]:
             try:
                 same = bool(ctx.backend.chat(msgs, response_format=merge_fmt).json()["same_problem"])
             except ContentFilteredError:
-                ctx.log("method_b: merge check blocked by content filter, not merged")
+                log.warning("method_b: merge check blocked by content filter, not merged")
                 same = False
             if not same:
                 rejected.add(pair)
                 continue
             joined = _Cluster(sorted(a.positions + b.positions), max(a.threshold, b.threshold))
+            log.debug(f"method_b: merged candidates of {len(a.positions)} + {len(b.positions)} Tickets")
             verdicts[joined.key] = True
             merged_into[i] = merged_into[j] = joined
         out, seen = [], set()
@@ -106,7 +114,7 @@ def run(ctx: MethodContext) -> list[ProblemDraft]:
 
     for iteration in range(1, cfg.max_iterations + 1):
         next_clusters: list[_Cluster] = []
-        verified = verify(clusters)
+        verified = verify(clusters, iteration)
         mixed = splits = 0
         for c in clusters:
             if len(c.positions) < 2 or verdicts[c.key]:
@@ -116,14 +124,14 @@ def run(ctx: MethodContext) -> list[ProblemDraft]:
             parts = _split(vectors, c, cfg.split_step, cfg.linkage)
             splits += len(parts) > 1
             next_clusters.extend(parts)
-        clusters, merges = merge_step(next_clusters)
-        ctx.log(f"method_b iteration {iteration}: verified={verified} mixed={mixed} splits={splits} "
+        clusters, merges = merge_step(next_clusters, iteration)
+        log.info(f"method_b iteration {iteration}: verified={verified} mixed={mixed} splits={splits} "
                 f"merges={merges} Problems={len(clusters)}")
         if not splits and not merges:
-            ctx.log(f"method_b: stable after {iteration} iteration(s)")
+            log.info(f"method_b: stable after {iteration} iteration(s)")
             break
     else:
-        ctx.log(f"method_b: stopped at max_iterations={cfg.max_iterations}")
+        log.info(f"method_b: stopped at max_iterations={cfg.max_iterations}")
 
     return drafts_from_groups(list(ctx.texts.index), vectors, [c.positions for c in clusters])
 

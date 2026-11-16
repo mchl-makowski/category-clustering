@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from datetime import datetime
 
@@ -18,6 +19,7 @@ import pandas as pd
 from .backend import Backend, TrackedBackend
 from .backend.runtime import with_runtime
 from .config import Config
+from .logs import capture
 from .methods import MethodContext, get_method
 from .naming import name_problems
 from .result import (
@@ -28,38 +30,44 @@ from .summary import symptom_summaries
 from .text import model_texts
 from .tickets import ID_COLUMN, TITLE_COLUMN
 
+log = logging.getLogger(__name__)
+
 
 def run_method(tickets: pd.DataFrame, method: str, config: Config, backend: Backend) -> RunResult:
+    """Run one Method; every package log record (DEBUG and up) of the run is collected into `RunResult.log`."""
     method = method.lower()
     method_fn = get_method(method)
+    lines: list[str] = []
+    with capture(lines):
+        result = _run(tickets, method, method_fn, config, backend)
+    result.log = lines
+    return result
+
+
+def _run(tickets, method, method_fn, config, backend) -> RunResult:
     started_at = datetime.now()
     start = time.perf_counter()
-    log: list[str] = []
-
-    def log_line(line: str) -> None:
-        log.append(f"[{datetime.now():%H:%M:%S}] {line}")
-
-    inner, cache_stats = with_runtime(backend, config, log_line)
+    inner, cache_stats = with_runtime(backend, config)
     tracked = TrackedBackend(inner)
 
-    log_line(f"run method={method} tickets={len(tickets)}")
-    log_line("config " + json.dumps(config.model_dump(), ensure_ascii=False))
+    log.info(f"run method={method} tickets={len(tickets)}")
+    log.debug("config " + json.dumps(config.model_dump(), ensure_ascii=False))
 
     all_texts = model_texts(tickets)
     texts = all_texts.dropna()
     empty_rows = [i for i in tickets.index if i not in texts.index]
-    log_line(f"non-empty={len(texts)} empty(X-0000)={len(empty_rows)}")
+    log.info(f"non-empty={len(texts)} empty(X-0000)={len(empty_rows)}")
 
     grouping_texts = texts
     if config.symptom_summary.enabled and len(texts):
-        grouping_texts = symptom_summaries(texts, config, tracked, log_line)  # grouped instead of raw text
+        grouping_texts = symptom_summaries(texts, config, tracked)  # grouped instead of raw text
 
-    ctx = MethodContext(tickets=tickets, texts=grouping_texts, config=config, backend=tracked, log=log_line)
+    ctx = MethodContext(tickets=tickets, texts=grouping_texts, config=config, backend=tracked)
     drafts = method_fn(ctx) if len(texts) else []
     _check_partition(drafts, texts.index)
     drafts.sort(key=lambda d: (-len(d.members), min(d.members)))
 
-    name_problems(drafts, texts, config, tracked, log_line)
+    name_problems(drafts, texts, config, tracked)
 
     assignments = pd.DataFrame(index=tickets.index, columns=ASSIGNMENT_COLUMNS, dtype=object)
     catalogue_rows = []
@@ -70,6 +78,7 @@ def run_method(tickets: pd.DataFrame, method: str, config: Config, backend: Back
         for row, conf, level in zip(draft.members, draft.confidences, levels):
             assignments.loc[row] = [pid, draft.name, float(conf), level]
         catalogue_rows.append(_catalogue_row(pid, draft.name, draft.description, draft.members, tickets, config))
+        log.debug(f"{pid} tickets={len(draft.members)} name={draft.name!r}")
     if empty_rows:
         for row in empty_rows:
             assignments.loc[row] = [EMPTY_PROBLEM_ID, EMPTY_PROBLEM_NAME, 1.0, None]
@@ -81,10 +90,12 @@ def run_method(tickets: pd.DataFrame, method: str, config: Config, backend: Back
     embeddings = ctx.computed_embeddings()
     usage = tracked.counters
     usage.runtime_s = time.perf_counter() - start
-    log_line(f"problems={len(drafts)} (+X-0000)" if empty_rows else f"problems={len(drafts)}")
+    singletons = sum(len(d.members) == 1 for d in drafts)
+    log.info(f"problems={len(drafts)} one-Ticket={singletons} {EMPTY_PROBLEM_ID}={len(empty_rows)}")
     if cache_stats is not None:
-        log_line(cache_stats.summary())
-    log_line("totals " + " ".join(f"{k}={v:.2f}" if isinstance(v, float) else f"{k}={v}" for k, v in usage.as_dict().items()))
+        log.info(cache_stats.summary())
+    log.info("totals " + " ".join(f"{k}={v:.2f}" if isinstance(v, float) else f"{k}={v}"
+                                  for k, v in usage.as_dict().items()))
 
     return RunResult(
         method=method,
@@ -93,7 +104,7 @@ def run_method(tickets: pd.DataFrame, method: str, config: Config, backend: Back
         assignments=assignments,
         catalogue=pd.DataFrame(catalogue_rows, columns=CATALOGUE_COLUMNS),
         usage=usage,
-        log=log,
+        log=[],
         started_at=started_at,
         embeddings=embeddings,
         embedding_rows=list(texts.index) if embeddings is not None else None,

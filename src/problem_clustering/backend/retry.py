@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Callable, TypeVar
 
@@ -9,6 +10,7 @@ from ..config import RuntimeConfig
 from .base import Backend, ChatReply, EmbeddingReply, TransientBackendError
 
 T = TypeVar("T")
+log = logging.getLogger(__name__)
 
 # openai SDK exception classes worth retrying (matched by name: no import needed offline)
 _TRANSIENT_NAMES = {"RateLimitError", "APITimeoutError", "APIConnectionError", "InternalServerError"}
@@ -26,11 +28,9 @@ def backoff_delays(rt: RuntimeConfig) -> list[float]:
 
 
 class RetryingBackend:
-    def __init__(self, inner: Backend, runtime: RuntimeConfig,
-                 log: Callable[[str], None] = lambda _: None, sleep: Callable[[float], None] = time.sleep):
+    def __init__(self, inner: Backend, runtime: RuntimeConfig, sleep: Callable[[float], None] = time.sleep):
         self.inner = inner
         self.delays = backoff_delays(runtime)
-        self.log = log
         self.sleep = sleep
 
     def _call(self, what: str, fn: Callable[[], T]) -> T:
@@ -41,7 +41,7 @@ class RetryingBackend:
                 if attempt == len(self.delays) or not is_transient(exc):
                     raise
                 delay = self.delays[attempt]
-                self.log(f"retry {attempt + 1}/{len(self.delays)} {what} after {type(exc).__name__}: "
+                log.warning(f"retry {attempt + 1}/{len(self.delays)} {what} after {type(exc).__name__}: "
                          f"{exc} (wait {delay:.1f}s)")
                 self.sleep(delay)
         raise AssertionError("unreachable")

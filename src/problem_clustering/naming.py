@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable
+import logging
 
 import pandas as pd
 
@@ -10,16 +10,18 @@ from .backend import Backend, ContentFilteredError, json_schema_format
 from .clustering import sample_members
 from .concurrency import parallel_map
 from .config import Config
+from .logs import TXT_ONLY
 from .prompts import NAMING_SCHEMA, NAMING_SCHEMA_NAME, naming_messages
 from .result import ProblemDraft
 
+
+log = logging.getLogger(__name__)
 
 FALLBACK_NAME_CHARS = 100
 FALLBACK_DESCRIPTION = "Nazwa zastępcza z tytułu pierwszego zgłoszenia (odpowiedź modelu zablokowana przez filtr treści)."
 
 
-def name_problems(drafts: list[ProblemDraft], texts: pd.Series, config: Config, backend: Backend,
-                  log: Callable[[str], None] = lambda _: None) -> None:
+def name_problems(drafts: list[ProblemDraft], texts: pd.Series, config: Config, backend: Backend) -> None:
     """Fill `name`/`description` in place for drafts that lack them.
 
     A reply blocked by the content filter falls back to the first Ticket's title (first line of its text)."""
@@ -33,10 +35,13 @@ def name_problems(drafts: list[ProblemDraft], texts: pd.Series, config: Config, 
         except ContentFilteredError:
             return None
 
-    for draft, reply in zip(todo, parallel_map(ask, todo, config.runtime.max_concurrency)):
+    for draft, reply in zip(todo, parallel_map(ask, todo, config.runtime.max_concurrency,
+                                                     desc="naming Problems")):
         if reply is None:
             title = texts[draft.members[0]].splitlines()[0].strip()[:FALLBACK_NAME_CHARS]
             reply = {"name": title, "description": FALLBACK_DESCRIPTION}
-            log(f"naming: blocked by content filter, Problem named after its first Ticket: {title!r}")
+            log.warning(f"naming: blocked by content filter, Problem ({len(draft.members)} Tickets) "
+                        "named after its first Ticket's title")
+            log.debug(f"naming fallback name: {title!r}", extra=TXT_ONLY)  # Ticket text: .txt only
         draft.name = draft.name or str(reply["name"]).strip()
         draft.description = draft.description or str(reply["description"]).strip()

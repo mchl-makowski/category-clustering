@@ -59,3 +59,7 @@ judge:
   split_sample_size: 4       # Tickets per Problem in a Split check
   neighbours: 3              # nearest Problems checked for a Split Problem
   max_problems: null         # judge only the N largest Problems (null = all)
+
+logging:
+  level: INFO                # console level (DEBUG | INFO | WARNING | ERROR); CLI -v / -q override; .txt is always DEBUG
+  progress: auto             # auto = progress bar on a TTY or in Jupyter, else ~10% processed/total lines; on | off

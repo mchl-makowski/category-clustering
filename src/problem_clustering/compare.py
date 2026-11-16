@@ -6,10 +6,13 @@ one column per run (named after the run workbook's file stem).
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+log = logging.getLogger(__name__)
 
 
 def compare(workbook_paths: list[str | Path], out_dir: str | Path) -> Path:
@@ -22,6 +25,7 @@ def compare(workbook_paths: list[str | Path], out_dir: str | Path) -> Path:
         while name in columns:
             name, n = f"{path.stem} ({n})", n + 1
         columns[name] = metrics.set_index("metric")["value"]
+        log.info(f"compare: read {path.name} ({len(metrics)} metrics)")
     table = pd.DataFrame(columns)  # union of metrics, first-seen order
     table.index.name = "metric"
 
@@ -34,4 +38,5 @@ def compare(workbook_paths: list[str | Path], out_dir: str | Path) -> Path:
     out = out_dir / f"{stem}.xlsx"
     with pd.ExcelWriter(out, engine="openpyxl") as writer:
         table.to_excel(writer, sheet_name="Comparison")
+    log.info(f"compare: {len(columns)} runs x {len(table)} metrics written to {out}")
     return out
