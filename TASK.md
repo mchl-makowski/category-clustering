@@ -1,4 +1,4 @@
-# Run logging and progress reporting with loguru
+# Run logging and progress reporting
 
 ## Goal
 
@@ -11,44 +11,63 @@ A run currently prints only the output file paths. While it runs (minutes for ~2
 
 ## Requirements
 
-1. **Use loguru** for all run logging. Replace the ad-hoc `log_line` / `ctx.log` callables with loguru calls (or route them through loguru). Add `loguru` as a dependency.
-2. **Progress for long loops.** Show processed / total items (Tickets or Problems) for every long loop, as a progress bar where the console supports it:
+1. **Use stdlib `logging`** for all run logging, with module loggers (`logging.getLogger(__name__)`) under the `problem_clustering` package logger. Remove `ctx.log`, `log_line` and the `log` callable parameters (`naming`, `summary`, `backend/retry`, the manual append in `judge_safely`). Add `tqdm` and `ipywidgets` as dependencies.
+2. **Progress for long loops.** Show processed / total items (Tickets or Problems) for every long loop:
     - embeddings,
     - Symptom Summary (when enabled),
     - Method B LLM verification and merge checks,
-    - Method C agent, Ticket by Ticket,
+    - Method C agent, Ticket by Ticket (bar postfix: current catalogue size),
     - Problem naming (per Problem),
     - Judge checks (per Problem / pair).
-3. **Cluster counts.** Log the number of Problems after each step that changes it:
+3. **Cluster counts.** Log the number of Problems at INFO after each step that changes it:
     - Method A: Problems after clustering,
     - Method B: candidates after coarse clustering, then per iteration (splits, merges, current count),
     - Method C: current catalogue size at each consolidation, and the final count,
     - every Method: final Problem count, one-Ticket Problems, `X-0000` size.
-4. **Configurable verbosity.**
-    - A config key for the console level (e.g. `logging.level: INFO`), settable in YAML and with `--set logging.level=DEBUG`.
-    - CLI shortcuts `-v` / `-q` (more / less output) are welcome.
-    - A switch to turn the progress bar off (non-interactive Foundry jobs, CI).
-5. **Keep the `.txt` run log.** It still gets written next to the workbook and contains at least what it has today. Progress bar frames do not go into it.
-6. **Notebook.** Logging and progress work in Jupyter too (progress bar renders in the notebook, or is cleanly disabled).
+4. **Configurable verbosity.** New config section `logging`:
+    - `level` (default `INFO`): console level. Settable in YAML and with `--set logging.level=DEBUG`.
+    - `progress: auto | on | off` (default `auto`): `auto` shows a bar when stderr is a TTY or in Jupyter, otherwise none (Foundry jobs, CI).
+    - CLI: `-v` (DEBUG) and `-q` (WARNING), mutually exclusive, override `logging.level`. `--no-progress` is the same as `logging.progress=off`.
+5. **Keep the `.txt` run log.** It is still written next to the workbook and has at least what it has today. It always records at DEBUG, whatever the console level, and never contains progress bar frames.
+6. **Notebook.** Calls `setup_logging(config)`. The progress bar renders as a `tqdm.auto` widget.
+7. **`compare`.** A few INFO lines (workbooks read, output written). No bar, no per-row noise.
+
+## Decided during grilling (2026-11-16)
+
+- **Library:** stdlib `logging` + `tqdm` (`tqdm.auto`, `ipywidgets` for the notebook widget). Not loguru, not rich.
+- **Console setup:** a new public `setup_logging(config)` in `__init__.py`, also added to `PUBLIC_API` in `tests/test_notebook.py`. The CLI and the notebook call it. `run_method` and `judge` never touch console handlers. Without `setup_logging` the package logger has only a `NullHandler`, so there is no console output and no bars, and tests stay quiet.
+- **Levels:**
+    - INFO: steps and Problem counts.
+    - DEBUG: per-Ticket and per-Problem detail (Method C rows, merges, the config JSON).
+    - WARNING: retries, content-filter fallbacks, Judge failure.
+- **`.txt` capture:** a per-run in-memory handler is attached to the `problem_clustering` logger for the duration of `run_method` (and of `judge` / `judge_safely`, which appends to the same `RunResult.log`). It is removed afterwards. `write_outputs` is unchanged.
+- **Line format:**
+    - `.txt`: `[HH:MM:SS] LEVEL message`. The level is new, so update tests that match the old format.
+    - Console: `HH:MM:SS LEVEL message`, written through `tqdm.write` so bars don't break.
+- **Progress hook points:**
+    - `parallel_map` takes an optional `desc=` and drives the bar itself. This covers naming, Symptom Summary, Judge, and Method B verification and merges.
+    - Sequential loops (Method C, embedding batches) use a shared `progress(iterable, total, desc)` helper.
+    - Bars are transient (`leave=False`), and an INFO count line follows each one.
+- **No bar** (`off`, or `auto` without a TTY): a processed/total INFO line about every 10%, plus a final line per loop.
+- **PII on the console:**
+    - Allowed: row numbers, Problem ids, Problem names, Confidence Levels, counts.
+    - Never: Ticket text.
+    - `symptom_summary.log_summaries` lines go to the `.txt` only, even at DEBUG.
 
 ## Constraints
 
-- Logging lives in the shared module. CLI and notebook only configure it (level, progress on/off).
-- Log messages must not include Ticket text beyond what the current log already allows (`symptom_summary.log_summaries`). PII stays out of the console.
+- Logging lives in the shared module. CLI and notebook only configure it (`setup_logging`).
+- Log messages follow the PII rule above.
 - Tests stay offline and quiet: pytest output is not flooded with progress bars.
-- New config section and keys are documented in `README.md` (`tests/test_readme.py` enforces).
+- New config section, keys and CLI flags are documented in `README.md` (`tests/test_readme.py` enforces).
+- After adding dependencies, re-export `requirements.txt`.
 
 ## Acceptance criteria
 
-- [ ] `run` shows a progress bar (or periodic processed/total lines) for every long loop listed above.
+- [ ] `run` shows a progress bar (or ~10% processed/total lines) for every long loop listed above.
 - [ ] Problem counts are logged after each step listed above, for all three Methods.
-- [ ] Console verbosity is set from config and CLI; progress bar can be turned off.
-- [ ] The `.txt` run log is still written and has no progress bar noise.
-- [ ] The notebook runs without broken progress output.
-- [ ] README documents the new config keys and flags; tests pass.
-
-## Open questions
-
-- Progress bar library: loguru plus `tqdm` (with `tqdm.auto` for Jupyter), or `rich`?
-- Default console level: `INFO` (steps + counts) with `DEBUG` for per-Ticket detail?
-- Should the `.txt` log follow the console level or always record at `DEBUG`?
+- [ ] Console verbosity is set from config and CLI (`-v` / `-q`); progress can be turned off (`logging.progress`, `--no-progress`).
+- [ ] The `.txt` run log is still written, records at DEBUG, carries the level per line, and has no progress bar noise.
+- [ ] The notebook runs with a working progress widget; `setup_logging` is part of the public API.
+- [ ] No console output without `setup_logging`; Ticket text never reaches the console.
+- [ ] README documents the new config keys and flags; `requirements.txt` updated; tests pass.
