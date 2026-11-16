@@ -1,0 +1,61 @@
+# Run configuration. Any value can be overridden from the CLI: --set method_a.distance_threshold=0.3
+# Secrets/endpoint come from env: FOUNDRY_API_KEY, FOUNDRY_ENDPOINT, FOUNDRY_API_VERSION.
+# FOUNDRY_EMBEDDING_DEPLOYMENT / FOUNDRY_CHAT_DEPLOYMENT / FOUNDRY_JUDGE_DEPLOYMENT, when set, override the deployment names below.
+
+granularity: medium          # coarse | medium | fine (Problem definition in every LLM prompt)
+
+backend:
+  kind: azure                # azure | fake (offline, deterministic)
+  embedding_deployment: text-embedding-3-large
+  chat_deployment: gpt-4o
+  embed_batch_size: 64
+  embed_max_chars: 8000      # each text cut to this before embedding (model limit 8191 tokens)
+
+naming:
+  sample_size: 8             # Tickets shown to the LLM when naming a Problem
+
+method_a:
+  algorithm: agglomerative  # agglomerative | hdbscan
+  distance_threshold: 0.35   # cosine distance; lower = finer Problems
+  linkage: average
+  min_cluster_size: 2         # hdbscan only; noise Tickets become one-Ticket Problems
+  min_samples: null          # hdbscan only; null = min_cluster_size
+
+runtime:
+  cache_dir: .cache/problem_clustering  # disk cache of embeddings + LLM replies; remove to disable
+  max_concurrency: 8         # parallel independent model calls
+  max_retries: 5             # on rate-limit/timeout/5xx, then the error is raised
+  backoff_initial_s: 1.0     # wait before retry 1, then x multiplier
+  backoff_multiplier: 2.0
+  backoff_max_s: 60.0
+
+method_b:
+  coarse_threshold: 0.6      # cosine distance of the starting coarse clusters (looser than method_a)
+  sample_size: 10            # Tickets shown to the LLM per verification / merge check
+  split_step: 0.1            # mixed cluster re-clustered at its threshold minus this
+  merge_neighbours: 1        # nearest-centroid neighbours LLM-checked for a merge
+  max_iterations: 5
+  linkage: average
+
+method_c:
+  max_tool_calls: 6          # per Ticket; then the Ticket gets a new Problem
+  search_k: 5                # default k for search_similar_tickets
+  search_max_k: 20           # hard cap on k
+  consolidate_every: 250     # Tickets between consolidations (also at the end)
+  consolidate_threshold: 0.5 # cosine distance between Problem centroids to be merge candidates
+  consolidate_group_size: 15 # max Problems per consolidation request
+  example_tickets: 5         # Ticket texts returned by get_problem
+
+output:
+  example_tickets: 5
+
+symptom_summary:
+  enabled: false             # true = LLM rewrites each Ticket into one symptom + context line; that line is grouped
+  log_summaries: false       # true = write each summary into the run log
+
+judge:
+  deployment: gpt-4o         # fixed Judge model, independent of backend.chat_deployment
+  sample_size: 8             # Tickets per Mixed check
+  split_sample_size: 4       # Tickets per Problem in a Split check
+  neighbours: 3              # nearest Problems checked for a Split Problem
+  max_problems: null         # judge only the N largest Problems (null = all)
