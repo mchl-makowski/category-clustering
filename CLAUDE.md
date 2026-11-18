@@ -66,7 +66,7 @@ Settled on 2026-11-15. See "Decided during planning" in `TASK.md`, plus `GLOSSAR
 
 ### Issue tracker
 
-Issues are tracked in GitHub Issues for `mmaku/category-clustering` (via `gh`). See `~/Projects/00_home/docs/agents/issue-tracker.md`.
+Issues are tracked in GitHub Issues for `mchl-makowski/category-clustering` (via `gh`). See `~/Projects/00_home/docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
