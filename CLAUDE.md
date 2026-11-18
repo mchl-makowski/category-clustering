@@ -66,17 +66,12 @@ Settled on 2026-11-15. See "Decided during planning" in `TASK.md`, plus `GLOSSAR
 
 ### Issue tracker
 
-Issues are tracked in GitHub Issues for `mmaku/category-clustering` (via `gh`). See `docs/agents/issue-tracker.md`.
+Issues are tracked in GitHub Issues for `mmaku/category-clustering` (via `gh`). See `~/Projects/00_home/docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `~/Projects/00_home/docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-Single-context: one `GLOSSARY.md` plus `docs/adr/` at the repo root. See `docs/agents/domain.md`.
-
-## Communication
-
-- **Reporting:** be extremely concise. Sacrifice grammar for brevity. No narrative.
-- **Asking questions:** use the built-in question UI (`AskUserQuestion`), not plain-text questions in chat.
+Single-context: one `GLOSSARY.md` plus `docs/adr/` at the repo root. See `~/Projects/00_home/docs/agents/domain.md`.
