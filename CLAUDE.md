@@ -61,17 +61,3 @@ Integration with the Service Desk system, live classification, routing tickets t
 ## Planning decisions
 
 Settled on 2026-11-15. See "Decided during planning" in `TASK.md`, plus `GLOSSARY.md` (use its terms) and `docs/adr/`.
-
-## Agent skills
-
-### Issue tracker
-
-Issues are tracked in GitHub Issues for `mchl-makowski/category-clustering` (via `gh`). See `~/Projects/00_home/docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `~/Projects/00_home/docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: one `GLOSSARY.md` plus `docs/adr/` at the repo root. See `~/Projects/00_home/docs/agents/domain.md`.
